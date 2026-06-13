@@ -1,8 +1,9 @@
 package com.hczk.hczkaiagentserver.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hczk.hczkaiagentserver.entity.AiModel;
 import com.hczk.hczkaiagentserver.enums.ModelStatus;
-import com.hczk.hczkaiagentserver.repository.AiModelRepository;
+import com.hczk.hczkaiagentserver.mapper.AiModelMapper;
 import com.hczk.hczkaiagentserver.service.AiModelService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -14,23 +15,27 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AiModelServiceImpl implements AiModelService {
 
-    private final AiModelRepository aiModelRepository;
+    private final AiModelMapper aiModelMapper;
 
     @Override
     public List<AiModel> getAllModels() {
-        return aiModelRepository.findAll();
+        return aiModelMapper.selectList(null);
     }
 
     @Override
     public AiModel getModelById(Long id) {
-        return aiModelRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("模型不存在"));
+        AiModel model = aiModelMapper.selectById(id);
+        if (model == null) {
+            throw new RuntimeException("模型不存在");
+        }
+        return model;
     }
 
     @Override
     @Transactional
     public AiModel createModel(AiModel model) {
-        return aiModelRepository.save(model);
+        aiModelMapper.insert(model);
+        return model;
     }
 
     @Override
@@ -46,13 +51,14 @@ public class AiModelServiceImpl implements AiModelService {
         existing.setOutputPrice(model.getOutputPrice());
         existing.setMaxTokens(model.getMaxTokens());
         existing.setThinking(model.getThinking());
-        return aiModelRepository.save(existing);
+        aiModelMapper.updateById(existing);
+        return existing;
     }
 
     @Override
     @Transactional
     public void deleteModel(Long id) {
-        aiModelRepository.deleteById(id);
+        aiModelMapper.deleteById(id);
     }
 
     @Override
@@ -60,6 +66,7 @@ public class AiModelServiceImpl implements AiModelService {
     public AiModel toggleStatus(Long id) {
         AiModel model = getModelById(id);
         model.setStatus(model.getStatus() == ModelStatus.ACTIVE ? ModelStatus.INACTIVE : ModelStatus.ACTIVE);
-        return aiModelRepository.save(model);
+        aiModelMapper.updateById(model);
+        return model;
     }
 }

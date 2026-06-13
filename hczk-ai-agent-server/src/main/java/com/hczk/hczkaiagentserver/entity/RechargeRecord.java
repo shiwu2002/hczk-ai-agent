@@ -1,40 +1,33 @@
 package com.hczk.hczkaiagentserver.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
-import org.hibernate.annotations.CreationTimestamp;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "recharge_records")
+@TableName("recharge_records")
 @Data
 public class RechargeRecord {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @ManyToOne
-    @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+    @TableField("user_id")
+    private Long userId;
 
-    @Column(precision = 19, scale = 4)
     private BigDecimal amount;
 
-    @Column(name = "bonus_amount", precision = 19, scale = 4)
+    @TableField("bonus_amount")
     private BigDecimal bonusAmount = BigDecimal.ZERO;
 
-    @Column(name = "payment_method")
+    @TableField("payment_method")
     private String paymentMethod;
 
-    @Column(name = "transaction_id")
+    @TableField("transaction_id")
     private String transactionId;
 
-    @Column(name = "status")
     private String status = "success";
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 }

@@ -1,49 +1,39 @@
 package com.hczk.hczkaiagentserver.entity;
 
+import com.baomidou.mybatisplus.annotation.*;
 import com.hczk.hczkaiagentserver.enums.PlatformType;
-import jakarta.persistence.*;
 import lombok.Data;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "platform_configs")
+@TableName("platform_configs")
 @Data
 public class PlatformConfig {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
     private PlatformType platformType;
 
-    @Column(name = "app_id")
+    @TableField("app_id")
     private String appId;
 
-    @Column(name = "app_secret")
+    @TableField("app_secret")
     private String appSecret;
 
-    @Column(name = "webhook_url")
+    @TableField("webhook_url")
     private String webhookUrl;
 
-    @Column(name = "auto_reply")
+    @TableField("auto_reply")
     private Boolean autoReply = false;
 
-    @Column(name = "enabled")
     private Boolean enabled = false;
 
-    @ManyToOne
-    @JoinColumn(name = "agent_id")
-    private Agent agent;
+    @TableField("agent_id")
+    private Long agentId;
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
-    @UpdateTimestamp
-    @Column(name = "updated_at")
+    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 }

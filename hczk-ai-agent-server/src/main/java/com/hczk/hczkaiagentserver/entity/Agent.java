@@ -1,55 +1,44 @@
 package com.hczk.hczkaiagentserver.entity;
 
+import com.baomidou.mybatisplus.annotation.*;
 import com.hczk.hczkaiagentserver.enums.AgentStatus;
-import jakarta.persistence.*;
 import lombok.Data;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "agents")
+@TableName("agents")
 @Data
 public class Agent {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(nullable = false)
     private String name;
 
     private String description;
 
-    @ManyToOne
-    @JoinColumn(name = "model_id", nullable = false)
-    private AiModel model;
+    @TableField("model_id")
+    private Long modelId;
 
-    @ManyToOne
-    @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+    @TableField("user_id")
+    private Long userId;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
     private AgentStatus status = AgentStatus.ACTIVE;
 
-    @Column(name = "agent_type")
+    @TableField("agent_type")
     private String agentType;
 
-    @Column(name = "total_calls")
+    @TableField("total_calls")
     private Long totalCalls = 0L;
 
-    @Column(name = "total_tokens")
+    @TableField("total_tokens")
     private Long totalTokens = 0L;
 
-    @Column(name = "avg_latency")
+    @TableField("avg_latency")
     private Integer avgLatency;
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
-    @UpdateTimestamp
-    @Column(name = "updated_at")
+    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 }

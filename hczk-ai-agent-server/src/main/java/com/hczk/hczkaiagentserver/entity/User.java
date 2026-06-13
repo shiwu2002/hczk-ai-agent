@@ -1,55 +1,42 @@
 package com.hczk.hczkaiagentserver.entity;
 
+import com.baomidou.mybatisplus.annotation.*;
 import com.hczk.hczkaiagentserver.enums.UserRole;
-import jakarta.persistence.*;
 import lombok.Data;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "users")
+@TableName("users")
 @Data
 public class User {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(nullable = false, unique = true)
     private String username;
 
-    @Column(nullable = false)
     private String password;
 
-    @Column(nullable = false)
     private String email;
 
-    @Column(name = "phone_number")
+    @TableField("phone_number")
     private String phoneNumber;
 
-    @Column(name = "company_name")
+    @TableField("company_name")
     private String companyName;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
     private UserRole role = UserRole.USER;
 
-    @Column(precision = 19, scale = 4)
     private BigDecimal balance = BigDecimal.ZERO;
 
-    @Column(name = "total_usage_tokens")
+    @TableField("total_usage_tokens")
     private Long totalUsageTokens = 0L;
 
-    @Column(name = "status")
     private String status = "active";
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
-    @UpdateTimestamp
-    @Column(name = "updated_at")
+    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 }

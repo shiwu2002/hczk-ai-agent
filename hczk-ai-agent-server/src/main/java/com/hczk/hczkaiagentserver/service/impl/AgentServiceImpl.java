@@ -1,8 +1,9 @@
 package com.hczk.hczkaiagentserver.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hczk.hczkaiagentserver.entity.Agent;
 import com.hczk.hczkaiagentserver.enums.AgentStatus;
-import com.hczk.hczkaiagentserver.repository.AgentRepository;
+import com.hczk.hczkaiagentserver.mapper.AgentMapper;
 import com.hczk.hczkaiagentserver.service.AgentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -14,28 +15,32 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AgentServiceImpl implements AgentService {
 
-    private final AgentRepository agentRepository;
+    private final AgentMapper agentMapper;
 
     @Override
     public List<Agent> getAllAgents() {
-        return agentRepository.findAll();
+        return agentMapper.selectList(null);
     }
 
     @Override
     public List<Agent> getAgentsByUserId(Long userId) {
-        return agentRepository.findByUserId(userId);
+        return agentMapper.selectList(new LambdaQueryWrapper<Agent>().eq(Agent::getUserId, userId));
     }
 
     @Override
     public Agent getAgentById(Long id) {
-        return agentRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("智能体不存在"));
+        Agent agent = agentMapper.selectById(id);
+        if (agent == null) {
+            throw new RuntimeException("智能体不存在");
+        }
+        return agent;
     }
 
     @Override
     @Transactional
     public Agent createAgent(Agent agent) {
-        return agentRepository.save(agent);
+        agentMapper.insert(agent);
+        return agent;
     }
 
     @Override
@@ -44,15 +49,16 @@ public class AgentServiceImpl implements AgentService {
         Agent existing = getAgentById(id);
         existing.setName(agent.getName());
         existing.setDescription(agent.getDescription());
-        existing.setModel(agent.getModel());
+        existing.setModelId(agent.getModelId());
         existing.setAgentType(agent.getAgentType());
-        return agentRepository.save(existing);
+        agentMapper.updateById(existing);
+        return existing;
     }
 
     @Override
     @Transactional
     public void deleteAgent(Long id) {
-        agentRepository.deleteById(id);
+        agentMapper.deleteById(id);
     }
 
     @Override
@@ -60,6 +66,7 @@ public class AgentServiceImpl implements AgentService {
     public Agent toggleStatus(Long id) {
         Agent agent = getAgentById(id);
         agent.setStatus(agent.getStatus() == AgentStatus.ACTIVE ? AgentStatus.INACTIVE : AgentStatus.ACTIVE);
-        return agentRepository.save(agent);
+        agentMapper.updateById(agent);
+        return agent;
     }
 }

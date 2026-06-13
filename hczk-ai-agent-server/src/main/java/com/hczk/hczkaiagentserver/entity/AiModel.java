@@ -1,58 +1,51 @@
 package com.hczk.hczkaiagentserver.entity;
 
+import com.baomidou.mybatisplus.annotation.*;
+import com.hczk.hczkaiagentserver.enums.ModelProviderType;
 import com.hczk.hczkaiagentserver.enums.ModelStatus;
-import jakarta.persistence.*;
 import lombok.Data;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "ai_models")
+@TableName("ai_models")
 @Data
 public class AiModel {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(nullable = false)
     private String name;
 
-    @Column(nullable = false)
     private String provider;
 
-    @Column(name = "model_id", nullable = false)
+    @TableField("provider_type")
+    private ModelProviderType providerType = ModelProviderType.OPENAI_COMPATIBLE;
+
+    @TableField("model_id")
     private String modelId;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
     private ModelStatus status = ModelStatus.ACTIVE;
 
-    @Column(name = "api_base")
+    @TableField("api_base")
     private String apiBase;
 
-    @Column(name = "api_key")
+    @TableField("api_key")
     private String apiKey;
 
-    @Column(name = "input_price", precision = 19, scale = 6)
+    @TableField("input_price")
     private BigDecimal inputPrice;
 
-    @Column(name = "output_price", precision = 19, scale = 6)
+    @TableField("output_price")
     private BigDecimal outputPrice;
 
-    @Column(name = "max_tokens")
+    @TableField("max_tokens")
     private Integer maxTokens;
 
-    @Column(name = "thinking")
     private Boolean thinking = false;
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
-    @UpdateTimestamp
-    @Column(name = "updated_at")
+    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 }

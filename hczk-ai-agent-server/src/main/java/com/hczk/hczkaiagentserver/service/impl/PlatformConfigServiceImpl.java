@@ -1,8 +1,9 @@
 package com.hczk.hczkaiagentserver.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hczk.hczkaiagentserver.entity.PlatformConfig;
 import com.hczk.hczkaiagentserver.enums.PlatformType;
-import com.hczk.hczkaiagentserver.repository.PlatformConfigRepository;
+import com.hczk.hczkaiagentserver.mapper.PlatformConfigMapper;
 import com.hczk.hczkaiagentserver.service.PlatformConfigService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -14,23 +15,32 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PlatformConfigServiceImpl implements PlatformConfigService {
 
-    private final PlatformConfigRepository platformConfigRepository;
+    private final PlatformConfigMapper platformConfigMapper;
 
     @Override
     public List<PlatformConfig> getAllConfigs() {
-        return platformConfigRepository.findAll();
+        return platformConfigMapper.selectList(null);
     }
 
     @Override
     public PlatformConfig getConfigByType(PlatformType type) {
-        return platformConfigRepository.findByPlatformType(type)
-                .orElseThrow(() -> new RuntimeException("平台配置不存在"));
+        PlatformConfig config = platformConfigMapper.selectOne(
+                new LambdaQueryWrapper<PlatformConfig>().eq(PlatformConfig::getPlatformType, type));
+        if (config == null) {
+            throw new RuntimeException("平台配置不存在");
+        }
+        return config;
     }
 
     @Override
     @Transactional
     public PlatformConfig saveConfig(PlatformConfig config) {
-        return platformConfigRepository.save(config);
+        if (config.getId() == null) {
+            platformConfigMapper.insert(config);
+        } else {
+            platformConfigMapper.updateById(config);
+        }
+        return config;
     }
 
     @Override

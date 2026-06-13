@@ -1,9 +1,8 @@
 package com.hczk.hczkaiagentserver.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hczk.hczkaiagentserver.entity.ApiKey;
-import com.hczk.hczkaiagentserver.entity.User;
-import com.hczk.hczkaiagentserver.repository.ApiKeyRepository;
-import com.hczk.hczkaiagentserver.repository.UserRepository;
+import com.hczk.hczkaiagentserver.mapper.ApiKeyMapper;
 import com.hczk.hczkaiagentserver.service.ApiKeyService;
 import com.hczk.hczkaiagentserver.util.ApiKeyGenerator;
 import lombok.RequiredArgsConstructor;
@@ -16,41 +15,41 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ApiKeyServiceImpl implements ApiKeyService {
 
-    private final ApiKeyRepository apiKeyRepository;
-    private final UserRepository userRepository;
+    private final ApiKeyMapper apiKeyMapper;
 
     @Override
     public List<ApiKey> getAllApiKeys() {
-        return apiKeyRepository.findAll();
+        return apiKeyMapper.selectList(null);
     }
 
     @Override
     public List<ApiKey> getApiKeysByUserId(Long userId) {
-        return apiKeyRepository.findByUserId(userId);
+        return apiKeyMapper.selectList(new LambdaQueryWrapper<ApiKey>().eq(ApiKey::getUserId, userId));
     }
 
     @Override
     @Transactional
     public ApiKey createApiKey(Long userId, String name) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
-
         ApiKey key = new ApiKey();
         key.setName(name);
         key.setApiKey(ApiKeyGenerator.generateKey());
-        key.setUser(user);
-        return apiKeyRepository.save(key);
+        key.setUserId(userId);
+        apiKeyMapper.insert(key);
+        return key;
     }
 
     @Override
     @Transactional
     public void deleteApiKey(Long id) {
-        apiKeyRepository.deleteById(id);
+        apiKeyMapper.deleteById(id);
     }
 
     @Override
     public ApiKey getApiKeyByKey(String apiKey) {
-        return apiKeyRepository.findByApiKey(apiKey)
-                .orElseThrow(() -> new RuntimeException("API Key 不存在"));
+        ApiKey key = apiKeyMapper.selectOne(new LambdaQueryWrapper<ApiKey>().eq(ApiKey::getApiKey, apiKey));
+        if (key == null) {
+            throw new RuntimeException("API Key 不存在");
+        }
+        return key;
     }
 }

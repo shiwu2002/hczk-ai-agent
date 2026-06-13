@@ -1,9 +1,11 @@
 package com.hczk.hczkaiagentserver.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hczk.hczkaiagentserver.dto.*;
 import com.hczk.hczkaiagentserver.entity.User;
 import com.hczk.hczkaiagentserver.enums.UserRole;
-import com.hczk.hczkaiagentserver.repository.UserRepository;
+import com.hczk.hczkaiagentserver.mapper.UserMapper;
+import com.hczk.hczkaiagentserver.service.EmailService;
 import com.hczk.hczkaiagentserver.service.UserService;
 import com.hczk.hczkaiagentserver.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
@@ -17,14 +19,18 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
 
-    private final UserRepository userRepository;
+    private final UserMapper userMapper;
+    private final EmailService emailService;
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
 
     @Override
     public LoginResponse login(LoginRequest request) {
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>().eq(User::getUsername, request.getUsername()));
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new RuntimeException("密码错误");
@@ -43,10 +49,15 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public User register(RegisterRequest request) {
-        if (userRepository.existsByUsername(request.getUsername())) {
+        // 校验邮箱验证码
+        if (!emailService.verifyCode(request.getEmail(), request.getCode())) {
+            throw new RuntimeException("验证码错误或已过期");
+        }
+
+        if (userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getUsername, request.getUsername())) > 0) {
             throw new RuntimeException("用户名已存在");
         }
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getEmail, request.getEmail())) > 0) {
             throw new RuntimeException("邮箱已存在");
         }
 
@@ -55,33 +66,40 @@ public class UserServiceImpl implements UserService {
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setEmail(request.getEmail());
         user.setRole(UserRole.USER);
-        return userRepository.save(user);
+        userMapper.insert(user);
+        return user;
     }
 
     @Override
     public UserDTO getCurrentUser(String username) {
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
+        User user = userMapper.selectOne(
+                new LambdaQueryWrapper<User>().eq(User::getUsername, username));
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
         return convertToDTO(user);
     }
 
     @Override
     public List<User> getAllUsers() {
-        return userRepository.findAll();
+        return userMapper.selectList(null);
     }
 
     @Override
     @Transactional
     public User updateUser(Long id, UserDTO userDTO) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
+        User user = userMapper.selectById(id);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
         if (userDTO.getPhoneNumber() != null) {
             user.setPhoneNumber(userDTO.getPhoneNumber());
         }
         if (userDTO.getCompanyName() != null) {
             user.setCompanyName(userDTO.getCompanyName());
         }
-        return userRepository.save(user);
+        userMapper.updateById(user);
+        return user;
     }
 
     private UserDTO convertToDTO(User user) {
