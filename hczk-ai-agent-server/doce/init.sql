@@ -57,6 +57,7 @@ CREATE TABLE ai_models (
     PRIMARY KEY,
     name                VARCHAR(100)   NOT NULL COMMENT '模型展示名称',
     provider            VARCHAR(100)   NOT NULL COMMENT '模型厂商/服务商',
+    provider_type       VARCHAR(30)    NOT NULL DEFAULT 'OPENAI_COMPATIBLE' COMMENT '接口类型：OPENAI_COMPATIBLE / ANTHROPIC / MODELSCOPE',
     model_id            VARCHAR(100)   NOT NULL COMMENT '接口调用标识ID',
     status              VARCHAR(20)    NOT NULL DEFAULT 'ACTIVE' COMMENT '启用状态：ACTIVE启用 / INACTIVE停用',
     api_base            VARCHAR(255)        COMMENT 'API接口根地址',
@@ -64,6 +65,7 @@ CREATE TABLE ai_models (
     input_price         DECIMAL(19,6)       COMMENT '输入计价：元/千Tokens',
     output_price        DECIMAL(19,6)       COMMENT '输出计价：元/千Tokens',
     max_tokens          INT                 COMMENT '模型最大上下文长度',
+    thinking            TINYINT(1)     NOT NULL DEFAULT 0 COMMENT '是否启用深度思考',
     created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 

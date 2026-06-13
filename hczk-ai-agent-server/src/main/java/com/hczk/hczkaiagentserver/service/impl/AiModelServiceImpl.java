@@ -44,6 +44,7 @@ public class AiModelServiceImpl implements AiModelService {
         AiModel existing = getModelById(id);
         existing.setName(model.getName());
         existing.setProvider(model.getProvider());
+        existing.setProviderType(model.getProviderType());
         existing.setModelId(model.getModelId());
         existing.setApiBase(model.getApiBase());
         existing.setApiKey(model.getApiKey());

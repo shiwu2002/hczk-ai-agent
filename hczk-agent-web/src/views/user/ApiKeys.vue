@@ -115,12 +115,37 @@ async function createKey() {
       <h3 class="text-lg font-semibold text-white mb-4">调用示例</h3>
       <div class="space-y-4">
         <div>
-          <p class="text-sm text-slate-400 mb-2">cURL</p>
+          <p class="text-sm text-slate-400 mb-2">cURL（通过智能体调用）</p>
           <div class="bg-[#0a0f1c] rounded-lg p-4 font-mono text-sm text-slate-300 overflow-x-auto">
             <p><span class="text-emerald-400">curl</span> http://localhost:8080/api/v1/chat/completions \</p>
             <p>  -H <span class="text-cyan-400">"Authorization: Bearer YOUR_API_KEY"</span> \</p>
             <p>  -H <span class="text-cyan-400">"Content-Type: application/json"</span> \</p>
-            <p>  -d <span class="text-cyan-400">'{"model": "your-model-id", "messages": [{"role": "user", "content": "Hello"}]}'</span></p>
+            <p>  -d <span class="text-cyan-400">'{"agentId": 1, "messages": [{"role": "user", "content": "你好"}], "stream": true}'</span></p>
+          </div>
+        </div>
+        <div>
+          <p class="text-sm text-slate-400 mb-2">Python（OpenAI SDK 兼容）</p>
+          <div class="bg-[#0a0f1c] rounded-lg p-4 font-mono text-sm text-slate-300 overflow-x-auto">
+            <p><span class="text-purple-400">from</span> openai <span class="text-purple-400">import</span> OpenAI</p>
+            <p>&nbsp;</p>
+            <p>client = OpenAI(</p>
+            <p>  api_key=<span class="text-cyan-400">"YOUR_API_KEY"</span>,</p>
+            <p>  base_url=<span class="text-cyan-400">"http://localhost:8080/api/v1"</span></p>
+            <p>)</p>
+            <p>&nbsp;</p>
+            <p>response = client.chat.completions.create(</p>
+            <p>  model=<span class="text-cyan-400">"agent-1"</span>,  <span class="text-slate-500"># 格式: agent-{智能体ID}</span></p>
+            <p>  messages=[{<span class="text-cyan-400">"role"</span>: <span class="text-cyan-400">"user"</span>, <span class="text-cyan-400">"content"</span>: <span class="text-cyan-400">"你好"</span>}]</p>
+            <p>)</p>
+          </div>
+        </div>
+        <div>
+          <p class="text-sm text-slate-400 mb-2">cURL（直接指定模型调用）</p>
+          <div class="bg-[#0a0f1c] rounded-lg p-4 font-mono text-sm text-slate-300 overflow-x-auto">
+            <p><span class="text-emerald-400">curl</span> http://localhost:8080/api/chat/completions \</p>
+            <p>  -H <span class="text-cyan-400">"Authorization: Bearer YOUR_API_KEY"</span> \</p>
+            <p>  -H <span class="text-cyan-400">"Content-Type: application/json"</span> \</p>
+            <p>  -d <span class="text-cyan-400">'{"modelId": 1, "message": "你好", "stream": true}'</span></p>
           </div>
         </div>
       </div>
