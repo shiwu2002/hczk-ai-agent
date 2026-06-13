@@ -198,18 +198,22 @@ async function runTest() {
       const lines = buffer.split('\n')
       buffer = lines.pop()  // 保留未完成的行
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6)
+        if (line.startsWith('data:')) {
+          const data = line.slice(5).trim()
           if (data === '[DONE]') continue
+          // 后端发送纯文本 SSE（data:内容），非 OpenAI JSON 格式
+          // 尝试 JSON 解析（兼容 OpenAI 格式），失败则直接作为文本
           try {
             const json = JSON.parse(data)
-            // 提取流式增量内容并拼接
             const delta = json.choices?.[0]?.delta?.content
             if (delta) {
               testForm.value.response += delta
             }
           } catch {
-            // 忽略格式错误的 JSON
+            // 纯文本格式，直接拼接
+            if (data) {
+              testForm.value.response += data
+            }
           }
         }
       }
