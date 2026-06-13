@@ -134,9 +134,9 @@ function toggleShow(id) {
           <p class="text-sm text-slate-400 mb-2">OpenAI 兼容格式</p>
           <div class="bg-[#0a0f1c] rounded-lg p-4 font-mono text-sm text-slate-300 overflow-x-auto">
             <p><span class="text-emerald-400">curl</span> https://api.hczk-ai.com/v1/chat/completions \</p>
-            <p>  -H <span class="text-cyan-400">"Authorization: Bearer sk-hczk-xxx"</span> \</p>
+            <p>  -H <span class="text-cyan-400">"Authorization: Bearer YOUR_API_KEY"</span> \</p>
             <p>  -H <span class="text-cyan-400">"Content-Type: application/json"</span> \</p>
-            <p>  -d <span class="text-cyan-400">'{"model": "deepseek-chat", "messages": [{"role": "user", "content": "Hello"}]}'</span></p>
+            <p>  -d <span class="text-cyan-400">'{"model": "your-model-id", "messages": [{"role": "user", "content": "Hello"}]}'</span></p>
           </div>
         </div>
       </div>

@@ -45,6 +45,9 @@ public class AiModel {
     @Column(name = "max_tokens")
     private Integer maxTokens;
 
+    @Column(name = "thinking")
+    private Boolean thinking = false;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

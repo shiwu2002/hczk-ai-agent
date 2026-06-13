@@ -12,11 +12,13 @@ const saving = ref(false)
 const settings = ref({
   siteName: 'AI 智能体平台',
   registerOpen: true,
-  defaultModel: 'DeepSeek-V3',
+  defaultModel: '',
   notifyEmail: true,
   notifyWebhook: false,
   securityLog: true
 })
+
+const models = ref([])
 
 const profile = ref({
   id: null,
@@ -25,7 +27,10 @@ const profile = ref({
   email: ''
 })
 
-onMounted(loadData)
+onMounted(() => {
+  loadData()
+  loadModels()
+})
 
 async function loadData() {
   loading.value = true
@@ -40,6 +45,13 @@ async function loadData() {
     }
   }
   loading.value = false
+}
+
+async function loadModels() {
+  const res = await api.get('/models')
+  if (res.code === 200) {
+    models.value = res.data || []
+  }
 }
 
 async function saveSettings() {
@@ -112,9 +124,8 @@ async function saveSettings() {
             <div>
               <label class="block text-sm text-slate-300 mb-2">默认模型</label>
               <select v-model="settings.defaultModel" class="input-field">
-                <option>DeepSeek-V3</option>
-                <option>ERNIE-4.0-Turbo</option>
-                <option>qwen-max</option>
+                <option value="">请选择默认模型</option>
+                <option v-for="m in models" :key="m.id" :value="m.name">{{ m.name }}</option>
               </select>
             </div>
             <label class="flex items-center gap-2 cursor-pointer">

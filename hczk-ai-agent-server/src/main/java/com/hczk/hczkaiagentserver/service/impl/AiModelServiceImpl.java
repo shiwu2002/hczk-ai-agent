@@ -45,6 +45,7 @@ public class AiModelServiceImpl implements AiModelService {
         existing.setInputPrice(model.getInputPrice());
         existing.setOutputPrice(model.getOutputPrice());
         existing.setMaxTokens(model.getMaxTokens());
+        existing.setThinking(model.getThinking());
         return aiModelRepository.save(existing);
     }
 

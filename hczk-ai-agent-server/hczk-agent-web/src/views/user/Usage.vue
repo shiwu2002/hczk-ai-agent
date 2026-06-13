@@ -3,30 +3,17 @@ import { ref } from 'vue'
 import { BarChart3, TrendingUp, Calendar } from 'lucide-vue-next'
 
 const stats = ref([
-  { label: '今日消耗', value: '45.2K', sub: 'tokens' },
-  { label: '本月消耗', value: '1.24M', sub: 'tokens' },
-  { label: '总消耗', value: '8.56M', sub: 'tokens' },
-  { label: '平均每日', value: '38.5K', sub: 'tokens' }
+  { label: '今日消耗', value: '-', sub: 'tokens' },
+  { label: '本月消耗', value: '-', sub: 'tokens' },
+  { label: '总消耗', value: '-', sub: 'tokens' },
+  { label: '平均每日', value: '-', sub: 'tokens' }
 ])
 
-const modelBreakdown = ref([
-  { model: 'DeepSeek-V3', usage: '4.2M', percent: 49, cost: '¥12.50' },
-  { model: 'ERNIE-4.0-Turbo', usage: '2.1M', percent: 25, cost: '¥16.80' },
-  { model: 'qwen-max', usage: '1.8M', percent: 21, cost: '¥36.00' },
-  { model: 'GLM-4-Plus', usage: '460K', percent: 5, cost: '¥4.60' }
-])
+const modelBreakdown = ref([])
 
-const dailyData = ref([
-  { date: '06-07', input: 12000, output: 8000 },
-  { date: '06-08', input: 15000, output: 10000 },
-  { date: '06-09', input: 8000, output: 5000 },
-  { date: '06-10', input: 22000, output: 15000 },
-  { date: '06-11', input: 18000, output: 12000 },
-  { date: '06-12', input: 28000, output: 18000 },
-  { date: '06-13', input: 25000, output: 16000 }
-])
+const dailyData = ref([])
 
-const maxVal = Math.max(...dailyData.value.map(d => d.input + d.output))
+const maxVal = dailyData.value.length ? Math.max(...dailyData.value.map(d => d.input + d.output)) : 1
 </script>
 
 <template>
@@ -60,7 +47,7 @@ const maxVal = Math.max(...dailyData.value.map(d => d.input + d.output))
           </select>
         </div>
       </div>
-      <div class="h-64 flex items-end justify-between gap-4 px-2">
+      <div v-if="dailyData.length" class="h-64 flex items-end justify-between gap-4 px-2">
         <div v-for="day in dailyData" :key="day.date" class="flex-1 flex flex-col items-center gap-2">
           <div class="w-full flex gap-0.5">
             <div class="flex-1 bg-cyan-500/60 rounded-t transition-all hover:bg-cyan-500/80" :style="{ height: (day.input / maxVal * 200) + 'px' }"></div>
@@ -69,6 +56,7 @@ const maxVal = Math.max(...dailyData.value.map(d => d.input + d.output))
           <span class="text-xs text-slate-500">{{ day.date }}</span>
         </div>
       </div>
+      <div v-else class="h-64 flex items-center justify-center text-slate-500">暂无数据</div>
       <div class="flex items-center justify-center gap-6 mt-4">
         <div class="flex items-center gap-2">
           <div class="w-3 h-3 rounded bg-cyan-500/60"></div>
@@ -84,7 +72,7 @@ const maxVal = Math.max(...dailyData.value.map(d => d.input + d.output))
     <!-- Model Breakdown -->
     <div class="glass-card p-6">
       <h3 class="text-lg font-semibold text-white mb-6">模型使用分布</h3>
-      <div class="space-y-4">
+      <div v-if="modelBreakdown.length" class="space-y-4">
         <div v-for="item in modelBreakdown" :key="item.model" class="flex items-center gap-4">
           <span class="text-sm text-white w-32">{{ item.model }}</span>
           <div class="flex-1 h-2 rounded-full bg-white/5 overflow-hidden">
@@ -94,6 +82,7 @@ const maxVal = Math.max(...dailyData.value.map(d => d.input + d.output))
           <span class="text-sm text-emerald-400 w-20 text-right">{{ item.cost }}</span>
         </div>
       </div>
+      <div v-else class="text-slate-500">暂无数据</div>
     </div>
   </div>
 </template>
