@@ -80,9 +80,11 @@ async function handleLogin() {
           <p class="text-sm text-slate-500">
             测试账号: <span class="text-emerald-400">admin / admin123</span> 或 <span class="text-emerald-400">user / user123</span>
           </p>
-          <p class="text-sm text-slate-500 mt-3">
-            没有账号？<router-link to="/register" class="text-emerald-400 hover:text-emerald-300">立即注册</router-link>
-          </p>
+          <div class="flex items-center justify-center gap-4 mt-3">
+            <router-link to="/forgot-password" class="text-sm text-slate-400 hover:text-emerald-300">忘记密码？</router-link>
+            <span class="text-slate-600">|</span>
+            <router-link to="/register" class="text-sm text-emerald-400 hover:text-emerald-300">立即注册</router-link>
+          </div>
         </div>
       </div>
     </div>

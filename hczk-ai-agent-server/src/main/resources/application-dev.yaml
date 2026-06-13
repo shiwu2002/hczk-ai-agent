@@ -13,9 +13,9 @@ spring:
   mail:
     host: smtp.qq.com
     port: 465
-    username: ${MAIL_USERNAME:848572306@qq.com}
-    password: ${QQ_SMTP_KEY:}
-    from: ${MAIL_USERNAME:848572306@qq.com}
+    username: ${MAIL_USERNAME:2752541202@qq.com}
+    password: ${QQ_EMIL:}
+    from: ${MAIL_USERNAME:2752541202@qq.com}
 
 jwt:
   secret: hczk-ai-platform-secret-key-2024-very-long-and-secure

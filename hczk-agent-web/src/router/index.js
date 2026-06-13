@@ -17,6 +17,12 @@ const router = createRouter({
       meta: { public: true }
     },
     {
+      path: '/forgot-password',
+      name: 'forgot-password',
+      component: () => import('@/views/ForgotPassword.vue'),
+      meta: { public: true }
+    },
+    {
       path: '/',
       component: () => import('@/views/user/Layout.vue'),
       children: [
@@ -54,6 +60,8 @@ router.beforeEach((to, from) => {
     return '/login'
   } else if (to.path === '/login' && authStore.isAuthenticated) {
     return authStore.isAdmin ? '/admin' : '/'
+  } else if (to.path.startsWith('/admin') && authStore.isAuthenticated && !authStore.isAdmin) {
+    return '/'
   }
 })
 

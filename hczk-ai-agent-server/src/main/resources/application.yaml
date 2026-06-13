@@ -32,9 +32,9 @@ spring:
   mail:
     host: ${MAIL_HOST:smtp.qq.com}
     port: ${MAIL_PORT:465}
-    username: ${MAIL_USERNAME:848572306@qq.com}
-    password: ${QQ_SMTP_KEY:}
-    from: ${MAIL_USERNAME:848572306@qq.com}
+    username: ${MAIL_USERNAME:2752541202@qq.com}
+    password: ${QQ_EMIL:}
+    from: ${MAIL_USERNAME:2752541202@qq.com}
     properties:
       mail:
         smtp:
