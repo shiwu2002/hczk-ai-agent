@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
   LayoutDashboard, Bot, BarChart3, CreditCard, Wallet,
-  KeyRound, UserCircle, LogOut, ChevronRight, Sparkles
+  UserCircle, LogOut, ChevronRight, Sparkles
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -15,7 +15,6 @@ const navItems = [
   { path: '/dashboard', name: '仪表盘', icon: LayoutDashboard },
   { path: '/agents', name: '我的智能体', icon: Bot },
   { path: '/usage', name: '用量统计', icon: BarChart3 },
-  { path: '/apikeys', name: 'API Keys', icon: KeyRound },
   { path: '/billing', name: '账单明细', icon: CreditCard },
   { path: '/recharge', name: '充值中心', icon: Wallet },
   { path: '/profile', name: '个人中心', icon: UserCircle }

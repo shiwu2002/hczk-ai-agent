@@ -1,18 +1,14 @@
 package com.hczk.hczkaiagentserver.service;
 
 import com.hczk.hczkaiagentserver.dto.ChatRequest;
-import com.hczk.hczkaiagentserver.entity.Agent;
 import com.hczk.hczkaiagentserver.entity.AiModel;
 import com.hczk.hczkaiagentserver.entity.User;
-import com.hczk.hczkaiagentserver.enums.AgentStatus;
 import com.hczk.hczkaiagentserver.enums.ModelStatus;
-import com.hczk.hczkaiagentserver.mapper.AgentMapper;
 import com.hczk.hczkaiagentserver.mapper.AiModelMapper;
 import com.hczk.hczkaiagentserver.mapper.UserMapper;
 import com.hczk.hczkaiagentserver.util.TokenCounter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -36,17 +32,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ChatService {
 
     private final AiModelMapper aiModelMapper;
-    private final AgentMapper agentMapper;
     private final UserMapper userMapper;
     private final ChatModelFactory chatModelFactory;
     private final BillingService billingService;
 
     /**
      * 流式聊天
-     * 支持两种调用方式：
-     * 1. 通过 agentId 调用：使用智能体的系统提示词 + 绑定模型
-     * 2. 通过 modelId 调用：直接使用指定模型（无系统提示词）
-     *
+     * 支持通过 modelId 或模型名称指定模型，未指定时使用默认模型
      * 流式完成后自动统计 token 用量并扣费
      */
     public SseEmitter streamChat(ChatRequest request) {
@@ -56,41 +48,39 @@ public class ChatService {
         }
 
         AiModel model;
-        Agent agent = null;
-        String systemPrompt = null;
         List<org.springframework.ai.chat.messages.Message> messages = new ArrayList<>();
 
-        if (request.getAgentId() != null) {
-            // 通过智能体调用：加载智能体配置和绑定模型
-            agent = agentMapper.selectById(request.getAgentId());
-            if (agent == null) {
-                throw new RuntimeException("智能体不存在");
-            }
-            if (agent.getStatus() != AgentStatus.ACTIVE) {
-                throw new RuntimeException("智能体已停用");
-            }
+        Long resolvedModelId = request.getResolvedModelId();
+        String modelName = request.getModelName();
 
-            model = aiModelMapper.selectById(agent.getModelId());
-            if (model == null) {
-                throw new RuntimeException("智能体关联的模型不存在");
-            }
-
-            // 添加智能体的系统提示词（description 字段）
-            if (agent.getDescription() != null && !agent.getDescription().trim().isEmpty()) {
-                systemPrompt = agent.getDescription();
-                messages.add(new SystemMessage(systemPrompt));
-            }
-
-            log.info("通过智能体调用: agentId={}, agentName={}, modelId={}, modelName={}",
-                    agent.getId(), agent.getName(), model.getId(), model.getName());
-        } else if (request.getModelId() != null) {
-            // 直接指定模型调用
-            model = aiModelMapper.selectById(request.getModelId());
+        if (resolvedModelId != null) {
+            // 直接指定模型 ID 调用
+            model = aiModelMapper.selectById(resolvedModelId);
             if (model == null) {
                 throw new RuntimeException("模型不存在");
             }
+            log.info("直接指定模型调用: modelId={}, modelName={}", model.getId(), model.getName());
+        } else if (modelName != null) {
+            // 按模型名称查找（OpenAI SDK 兼容，如 model="qwen-plus"）
+            model = aiModelMapper.selectOne(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AiModel>()
+                            .eq(AiModel::getModelId, modelName)
+                            .eq(AiModel::getStatus, ModelStatus.ACTIVE));
+            if (model == null) {
+                throw new RuntimeException("模型不存在: " + modelName);
+            }
+            log.info("按名称查找模型调用: modelName={}, modelId={}", modelName, model.getId());
         } else {
-            throw new RuntimeException("请指定 agentId 或 modelId");
+            // 未指定模型，使用第一个可用模型作为默认
+            model = aiModelMapper.selectOne(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AiModel>()
+                            .eq(AiModel::getStatus, ModelStatus.ACTIVE)
+                            .orderByAsc(AiModel::getId)
+                            .last("LIMIT 1"));
+            if (model == null) {
+                throw new RuntimeException("没有可用的模型，请联系管理员");
+            }
+            log.info("未指定模型，使用默认模型: modelId={}, modelName={}", model.getId(), model.getName());
         }
 
         if (model.getStatus() != ModelStatus.ACTIVE) {
@@ -98,7 +88,7 @@ public class ChatService {
         }
 
         // 估算输入 token 数
-        long inputTokens = TokenCounter.estimateInputTokens(systemPrompt, effectiveMessage);
+        long inputTokens = TokenCounter.estimateInputTokens(null, effectiveMessage);
 
         // 添加用户消息
         messages.add(new UserMessage(effectiveMessage));
@@ -119,7 +109,6 @@ public class ChatService {
 
         // 保存引用，用于计费
         final AiModel finalModel = model;
-        final Agent finalAgent = agent;
 
         flux.subscribe(
                 chatResponse -> {
@@ -148,7 +137,7 @@ public class ChatService {
                         } catch (IOException ignored) {
                         }
                         // 流式完成后统计 token 并扣费
-                        processBilling(finalModel, finalAgent, inputTokens, outputContent.toString());
+                        processBilling(finalModel, inputTokens, outputContent.toString());
                     }
                 }
         );
@@ -161,9 +150,8 @@ public class ChatService {
      * 1. 估算输出 token 数
      * 2. 根据模型定价计算费用
      * 3. 扣减用户余额
-     * 4. 更新智能体统计
      */
-    private void processBilling(AiModel model, Agent agent, long inputTokens, String outputText) {
+    private void processBilling(AiModel model, long inputTokens, String outputText) {
         try {
             long outputTokens = TokenCounter.estimateTokens(outputText);
             long totalTokens = inputTokens + outputTokens;
@@ -195,13 +183,6 @@ public class ChatService {
                 } else {
                     log.warn("计费失败（余额不足）: userId={}, cost={}元", userId, totalCost);
                 }
-            }
-
-            // 更新智能体统计
-            if (agent != null) {
-                agent.setTotalCalls(agent.getTotalCalls() + 1);
-                agent.setTotalTokens(agent.getTotalTokens() + totalTokens);
-                agentMapper.updateById(agent);
             }
 
         } catch (Exception e) {

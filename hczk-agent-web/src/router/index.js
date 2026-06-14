@@ -32,7 +32,6 @@ const router = createRouter({
         { path: 'usage', name: 'user-usage', component: () => import('@/views/user/Usage.vue') },
         { path: 'billing', name: 'user-billing', component: () => import('@/views/user/Billing.vue') },
         { path: 'recharge', name: 'user-recharge', component: () => import('@/views/user/Recharge.vue') },
-        { path: 'apikeys', name: 'user-apikeys', component: () => import('@/views/user/ApiKeys.vue') },
         { path: 'profile', name: 'user-profile', component: () => import('@/views/user/Profile.vue') }
       ]
     },
