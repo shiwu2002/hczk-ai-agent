@@ -2,9 +2,11 @@ package com.hczk.hczkaiagentserver.service;
 
 import com.hczk.hczkaiagentserver.dto.ChatRequest;
 import com.hczk.hczkaiagentserver.entity.AiModel;
+import com.hczk.hczkaiagentserver.entity.ChatLog;
 import com.hczk.hczkaiagentserver.entity.User;
 import com.hczk.hczkaiagentserver.enums.ModelStatus;
 import com.hczk.hczkaiagentserver.mapper.AiModelMapper;
+import com.hczk.hczkaiagentserver.mapper.ChatLogMapper;
 import com.hczk.hczkaiagentserver.mapper.UserMapper;
 import com.hczk.hczkaiagentserver.util.TokenCounter;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,7 @@ public class ChatService {
 
     private final AiModelMapper aiModelMapper;
     private final UserMapper userMapper;
+    private final ChatLogMapper chatLogMapper;
     private final ChatModelFactory chatModelFactory;
     private final BillingService billingService;
 
@@ -97,10 +100,17 @@ public class ChatService {
         ChatModel chatModel = chatModelFactory.getOrCreate(model);
         Prompt prompt = new Prompt(messages);
 
+        // 在请求线程上提前获取认证信息（Flux 回调在其他线程，SecurityContext 不可用）
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        Long userId = resolveUserId(auth);
+        Long apiKeyId = resolveApiKeyId(auth);
+
         SseEmitter emitter = new SseEmitter(0L);
         AtomicBoolean completed = new AtomicBoolean(false);
         // 累积输出内容，用于估算输出 token
         StringBuilder outputContent = new StringBuilder();
+        // 记录开始时间，用于计算响应耗时
+        long startTime = System.currentTimeMillis();
 
         emitter.onCompletion(() -> completed.set(true));
         emitter.onTimeout(() -> completed.set(true));
@@ -122,11 +132,15 @@ public class ChatService {
                         }
                     } catch (IOException e) {
                         completed.set(true);
+                        log.debug("客户端断开连接，停止发送SSE数据");
                     }
                 },
                 error -> {
                     log.error("流式调用失败: {}", error.getMessage(), error);
                     if (completed.compareAndSet(false, true)) {
+                        // 记录失败的对话日志
+                        saveChatLog(finalModel, effectiveMessage, outputContent.toString(),
+                                inputTokens, userId, apiKeyId, startTime, "failed", error.getMessage());
                         emitter.completeWithError(error);
                     }
                 },
@@ -137,8 +151,8 @@ public class ChatService {
                             emitter.complete();
                         } catch (IOException ignored) {
                         }
-                        // 流式完成后统计 token 并扣费
-                        processBilling(finalModel, inputTokens, outputContent.toString());
+                        // 流式完成后统计 token 并扣费（使用提前获取的 userId/apiKeyId）
+                        processBilling(finalModel, effectiveMessage, inputTokens, outputContent.toString(), userId, apiKeyId, startTime);
                     }
                 }
         );
@@ -152,10 +166,9 @@ public class ChatService {
      * 2. 根据模型定价计算费用
      * 3. 扣减用户余额
      */
-    private void processBilling(AiModel model, long inputTokens, String outputText) {
+    private void processBilling(AiModel model, String inputContent, long inputTokens, String outputText, Long userId, Long apiKeyId, long startTime) {
         try {
             long outputTokens = TokenCounter.estimateTokens(outputText);
-            long totalTokens = inputTokens + outputTokens;
 
             // 根据模型定价计算费用（价格单位：元/千Tokens）
             BigDecimal inputCost = model.getInputPrice() != null
@@ -166,32 +179,73 @@ public class ChatService {
                     : BigDecimal.ZERO;
             BigDecimal totalCost = inputCost.add(outputCost).setScale(6, RoundingMode.HALF_UP);
 
-            // 获取当前用户 ID 和 API Key ID
-            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-            Long userId = resolveUserId(auth);
-            Long apiKeyId = resolveApiKeyId(auth);
+            log.info("计费计算: model={}, inputTokens={}, outputTokens={}, inputCost={}, outputCost={}, totalCost={}, userId={}, apiKeyId={}",
+                    model.getName(), inputTokens, outputTokens, inputCost, outputCost, totalCost, userId, apiKeyId);
 
             if (userId == null) {
                 log.warn("无法获取当前用户 ID，跳过计费");
                 return;
             }
 
-            // 扣减用户余额
+            // 无论费用是否为0，都记录用量明细；费用>0时扣减余额
+            String detail = String.format("模型[%s]调用 - 输入:%d tokens, 输出:%d tokens",
+                    model.getName(), inputTokens, outputTokens);
+
             if (totalCost.compareTo(BigDecimal.ZERO) > 0) {
-                String detail = String.format("模型[%s]调用 - 输入:%d tokens, 输出:%d tokens",
-                        model.getName(), inputTokens, outputTokens);
                 boolean success = billingService.deductBalance(userId, apiKeyId, totalCost, inputTokens, outputTokens, detail);
                 if (success) {
-                    log.info("计费成功: userId={}, apiKeyId={}, cost={}元, inputTokens={}, outputTokens={}",
-                            userId, apiKeyId, totalCost, inputTokens, outputTokens);
+                    log.info("计费成功: userId={}, apiKeyId={}, cost={}元", userId, apiKeyId, totalCost);
                 } else {
                     log.warn("计费失败（余额不足）: userId={}, cost={}元", userId, totalCost);
                 }
+            } else {
+                // 费用为0（模型未定价），仍然记录用量但不扣费
+                billingService.recordUsage(userId, apiKeyId, inputTokens, outputTokens, detail);
+                log.info("模型未定价或费用为0，仅记录用量: userId={}, model={}", userId, model.getName());
             }
+
+            // 保存对话日志
+            saveChatLog(model, inputContent, outputText, inputTokens, userId, apiKeyId, startTime, "success", null);
 
         } catch (Exception e) {
             log.error("计费处理异常: {}", e.getMessage(), e);
-            // 计费异常不影响已完成的对话
+        }
+    }
+
+    /**
+     * 保存对话记录到 chat_logs 表
+     */
+    private void saveChatLog(AiModel model, String inputContent, String outputContent,
+                             long inputTokens, Long userId, Long apiKeyId, long startTime,
+                             String status, String errorMessage) {
+        try {
+            long outputTokens = TokenCounter.estimateTokens(outputContent);
+            long durationMs = System.currentTimeMillis() - startTime;
+
+            BigDecimal cost = BigDecimal.ZERO;
+            if (model.getInputPrice() != null) {
+                cost = cost.add(model.getInputPrice().multiply(BigDecimal.valueOf(inputTokens)).divide(BigDecimal.valueOf(1000), 6, RoundingMode.HALF_UP));
+            }
+            if (model.getOutputPrice() != null) {
+                cost = cost.add(model.getOutputPrice().multiply(BigDecimal.valueOf(outputTokens)).divide(BigDecimal.valueOf(1000), 6, RoundingMode.HALF_UP));
+            }
+
+            ChatLog chatLog = new ChatLog();
+            chatLog.setUserId(userId);
+            chatLog.setApiKeyId(apiKeyId);
+            chatLog.setModelId(model.getId());
+            chatLog.setModelName(model.getName());
+            chatLog.setInputContent(inputContent);
+            chatLog.setOutputContent(outputContent);
+            chatLog.setInputTokens(inputTokens);
+            chatLog.setOutputTokens(outputTokens);
+            chatLog.setCost(cost);
+            chatLog.setDurationMs(durationMs);
+            chatLog.setStatus(status);
+            chatLog.setErrorMessage(errorMessage);
+            chatLogMapper.insert(chatLog);
+        } catch (Exception e) {
+            log.warn("保存对话日志失败: {}", e.getMessage());
         }
     }
 

@@ -46,6 +46,7 @@ const router = createRouter({
         { path: 'apikeys', name: 'admin-apikeys', component: () => import('@/views/admin/ApiKeys.vue') },
         { path: 'users', name: 'admin-users', component: () => import('@/views/admin/Users.vue') },
         { path: 'billing', name: 'admin-billing', component: () => import('@/views/admin/Billing.vue') },
+        { path: 'chat-logs', name: 'admin-chat-logs', component: () => import('@/views/admin/ChatLogs.vue') },
         { path: 'platforms', name: 'admin-platforms', component: () => import('@/views/admin/Platforms.vue') },
         { path: 'settings', name: 'admin-settings', component: () => import('@/views/admin/Settings.vue') }
       ]

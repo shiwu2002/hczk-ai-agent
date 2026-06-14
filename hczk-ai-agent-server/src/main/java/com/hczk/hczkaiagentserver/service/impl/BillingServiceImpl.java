@@ -117,6 +117,43 @@ public class BillingServiceImpl implements BillingService {
     }
 
     @Override
+    @Transactional
+    public void recordUsage(Long userId, Long apiKeyId, Long inputTokens, Long outputTokens, String detail) {
+        // 更新用户 Token 统计
+        User user = userMapper.selectById(userId);
+        if (user != null) {
+            user.setTotalUsageTokens(user.getTotalUsageTokens() + inputTokens + outputTokens);
+            userMapper.updateById(user);
+        }
+
+        // 记录用量明细（金额为0）
+        BillingRecord record = new BillingRecord();
+        record.setUserId(userId);
+        record.setApiKeyId(apiKeyId);
+        record.setType(BillingType.TOKEN_USAGE);
+        record.setAmount(BigDecimal.ZERO);
+        record.setBalanceAfter(user != null ? user.getBalance() : BigDecimal.ZERO);
+        record.setInputTokens(inputTokens);
+        record.setOutputTokens(outputTokens);
+        record.setDetail(detail);
+        billingRecordMapper.insert(record);
+
+        // 更新 API Key 统计
+        if (apiKeyId != null) {
+            try {
+                ApiKey apiKey = apiKeyMapper.selectById(apiKeyId);
+                if (apiKey != null) {
+                    apiKey.setTotalInputTokens(apiKey.getTotalInputTokens() + inputTokens);
+                    apiKey.setTotalOutputTokens(apiKey.getTotalOutputTokens() + outputTokens);
+                    apiKeyMapper.updateById(apiKey);
+                }
+            } catch (Exception e) {
+                log.warn("更新 API Key 统计失败: apiKeyId={}, error={}", apiKeyId, e.getMessage());
+            }
+        }
+    }
+
+    @Override
     public BigDecimal getUserBalance(Long userId) {
         User user = userMapper.selectById(userId);
         if (user == null) {

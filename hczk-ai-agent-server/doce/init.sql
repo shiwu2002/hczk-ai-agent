@@ -201,6 +201,36 @@ CREATE TABLE recharge_records (
     CONSTRAINT fk_recharge_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户充值订单记录表';
 
+-- ------------------------------
+-- 表8：对话记录表 chat_logs
+-- 存储用户每次调用的输入输出内容，用于审计和统计
+-- ------------------------------
+DROP TABLE IF EXISTS chat_logs;
+CREATE TABLE chat_logs (
+    id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
+    PRIMARY KEY,
+    user_id             BIGINT         NOT NULL COMMENT '用户ID(users.id)',
+    api_key_id          BIGINT              COMMENT '关联API Key ID(api_keys.id)',
+    model_id            BIGINT              COMMENT '使用的模型ID(ai_models.id)',
+    model_name          VARCHAR(100)        COMMENT '模型名称',
+    input_content       TEXT                COMMENT '用户输入内容',
+    output_content      MEDIUMTEXT          COMMENT 'AI输出内容',
+    input_tokens        BIGINT              COMMENT '输入Token数量',
+    output_tokens       BIGINT              COMMENT '输出Token数量',
+    cost                DECIMAL(19,6)  NOT NULL DEFAULT 0.000000 COMMENT '本次费用(元)',
+    duration_ms         BIGINT              COMMENT '响应耗时(毫秒)',
+    status              VARCHAR(20)    NOT NULL DEFAULT 'success' COMMENT '状态：success成功 / failed失败',
+    error_message       VARCHAR(500)        COMMENT '失败时的错误信息',
+    created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+
+    KEY idx_user_id (user_id),
+    KEY idx_api_key_id (api_key_id),
+    KEY idx_model_id (model_id),
+    KEY idx_created_at (created_at),
+    KEY idx_status (status),
+    CONSTRAINT fk_chatlog_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='对话内容记录表';
+
 -- ============================================================
 -- 初始化基础测试/默认数据
 -- ============================================================

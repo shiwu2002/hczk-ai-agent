@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.io.IOException;
+
 /**
  * 全局异常处理器
  * 统一捕获 Controller 层抛出的异常，转换为标准 Result 响应格式
@@ -30,6 +32,11 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception e) {
+        // 客户端断开连接导致的IO异常，降级为debug日志
+        if (e instanceof IOException && (e.getMessage() != null && e.getMessage().contains("中止"))) {
+            log.debug("客户端断开连接: {}", e.getMessage());
+            return Result.error("连接已断开");
+        }
         log.error("Exception: {}", e.getMessage(), e);
         return Result.error("系统错误，请稍后重试");
     }
