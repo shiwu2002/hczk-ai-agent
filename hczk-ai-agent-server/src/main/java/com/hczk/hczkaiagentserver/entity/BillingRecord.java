@@ -16,6 +16,9 @@ public class BillingRecord {
     @TableField("user_id")
     private Long userId;
 
+    @TableField("api_key_id")
+    private Long apiKeyId;
+
     private BillingType type;
 
     private BigDecimal amount;

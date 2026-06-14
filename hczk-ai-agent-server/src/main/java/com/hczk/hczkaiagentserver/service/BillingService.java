@@ -10,6 +10,6 @@ public interface BillingService {
     List<BillingRecord> getUserBillingRecords(Long userId);
     List<BillingRecord> getAllBillingRecords();
     RechargeRecord recharge(Long userId, BigDecimal amount, String paymentMethod);
-    boolean deductBalance(Long userId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail);
+    boolean deductBalance(Long userId, Long apiKeyId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail);
     BigDecimal getUserBalance(Long userId);
 }

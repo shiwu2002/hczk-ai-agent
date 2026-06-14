@@ -24,6 +24,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
@@ -165,8 +166,11 @@ public class ChatService {
                     : BigDecimal.ZERO;
             BigDecimal totalCost = inputCost.add(outputCost).setScale(6, RoundingMode.HALF_UP);
 
-            // 获取当前用户 ID
-            Long userId = getCurrentUserId();
+            // 获取当前用户 ID 和 API Key ID
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            Long userId = resolveUserId(auth);
+            Long apiKeyId = resolveApiKeyId(auth);
+
             if (userId == null) {
                 log.warn("无法获取当前用户 ID，跳过计费");
                 return;
@@ -176,10 +180,10 @@ public class ChatService {
             if (totalCost.compareTo(BigDecimal.ZERO) > 0) {
                 String detail = String.format("模型[%s]调用 - 输入:%d tokens, 输出:%d tokens",
                         model.getName(), inputTokens, outputTokens);
-                boolean success = billingService.deductBalance(userId, totalCost, inputTokens, outputTokens, detail);
+                boolean success = billingService.deductBalance(userId, apiKeyId, totalCost, inputTokens, outputTokens, detail);
                 if (success) {
-                    log.info("计费成功: userId={}, cost={}元, inputTokens={}, outputTokens={}",
-                            userId, totalCost, inputTokens, outputTokens);
+                    log.info("计费成功: userId={}, apiKeyId={}, cost={}元, inputTokens={}, outputTokens={}",
+                            userId, apiKeyId, totalCost, inputTokens, outputTokens);
                 } else {
                     log.warn("计费失败（余额不足）: userId={}, cost={}元", userId, totalCost);
                 }
@@ -192,22 +196,19 @@ public class ChatService {
     }
 
     /**
-     * 获取当前用户 ID
-     * 1. API Key 认证：details 中直接存储了 userId
-     * 2. JWT 认证：principal 是 username，通过 UserMapper 查找 userId
+     * 从认证信息中解析用户 ID
      */
-    private Long getCurrentUserId() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null) {
-            return null;
+    private Long resolveUserId(Authentication auth) {
+        if (auth == null) return null;
+
+        // API Key 认证：details 是 Map
+        if (auth.getDetails() instanceof Map) {
+            Map<?, ?> details = (Map<?, ?>) auth.getDetails();
+            Object userId = details.get("userId");
+            if (userId instanceof Long) return (Long) userId;
         }
 
-        // API Key 认证：details 中直接存储了 userId
-        if (auth.getDetails() instanceof Long) {
-            return (Long) auth.getDetails();
-        }
-
-        // JWT 认证：principal 是 username，通过数据库查找 userId
+        // JWT 认证：principal 是 username
         Object principal = auth.getPrincipal();
         if (principal instanceof String) {
             String username = (String) principal;
@@ -217,6 +218,19 @@ public class ChatService {
             return user != null ? user.getId() : null;
         }
 
+        return null;
+    }
+
+    /**
+     * 从认证信息中解析 API Key ID
+     */
+    private Long resolveApiKeyId(Authentication auth) {
+        if (auth == null) return null;
+        if (auth.getDetails() instanceof Map) {
+            Map<?, ?> details = (Map<?, ?>) auth.getDetails();
+            Object apiKeyId = details.get("apiKeyId");
+            if (apiKeyId instanceof Long) return (Long) apiKeyId;
+        }
         return null;
     }
 }

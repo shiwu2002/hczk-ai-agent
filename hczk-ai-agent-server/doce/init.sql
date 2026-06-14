@@ -116,6 +116,9 @@ CREATE TABLE api_keys (
     api_key             VARCHAR(512)   NOT NULL COMMENT '随机生成密钥串',
     user_id             BIGINT         NOT NULL COMMENT '归属用户ID(users.id)',
     total_calls         BIGINT         NOT NULL DEFAULT 0 COMMENT '累计调用次数',
+    total_input_tokens  BIGINT         NOT NULL DEFAULT 0 COMMENT '累计输入Token数量',
+    total_output_tokens BIGINT         NOT NULL DEFAULT 0 COMMENT '累计输出Token数量',
+    total_cost          DECIMAL(19,6)  NOT NULL DEFAULT 0.000000 COMMENT '累计消耗费用(元)',
     status              VARCHAR(20)    NOT NULL DEFAULT 'active' COMMENT '状态：active可用 / inactive禁用',
     last_used_at        DATETIME            COMMENT '最后调用时间',
     created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -159,6 +162,7 @@ CREATE TABLE billing_records (
     id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
     PRIMARY KEY,
     user_id             BIGINT         NOT NULL COMMENT '操作用户ID(users.id)',
+    api_key_id          BIGINT              COMMENT '关联API Key ID(api_keys.id)，API Key调用时记录',
     type                VARCHAR(20)    NOT NULL COMMENT '账单类型：TOKEN_USAGE消耗扣费 / RECHARGE充值入账',
     amount              DECIMAL(19,4)       COMMENT '变动金额(正充值/负扣费)',
     balance_after       DECIMAL(19,4)       COMMENT '操作后账户余额',
@@ -168,6 +172,7 @@ CREATE TABLE billing_records (
     created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '账单生成时间',
 
     KEY idx_user_id (user_id),
+    KEY idx_api_key_id (api_key_id),
     KEY idx_type (type),
     KEY idx_created_at (created_at),
     CONSTRAINT fk_billing_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE

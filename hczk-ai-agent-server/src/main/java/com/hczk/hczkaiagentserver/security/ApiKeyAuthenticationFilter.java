@@ -1,7 +1,7 @@
 package com.hczk.hczkaiagentserver.security;
 
 import com.hczk.hczkaiagentserver.entity.ApiKey;
-import com.hczk.hczkaiagentserver.service.ApiKeyService;
+import com.hczk.hczkaiagentserver.mapper.ApiKeyMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,10 +18,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * API Key 认证过滤器
- * 识别 sk-hczk- 格式的 API Key，验证有效后将用户信息写入 Spring Security 上下文
+ * 识别 sk-hczk- 格式的 API Key，验证有效后将用户信息和 apiKeyId 写入 Spring Security 上下文
  * 仅在 JWT 认证未生效时尝试 API Key 认证，两者互不冲突
  */
 @Slf4j
@@ -31,7 +32,7 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String API_KEY_PREFIX = "sk-hczk-";
 
-    private final ApiKeyService apiKeyService;
+    private final ApiKeyMapper apiKeyMapper;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -47,22 +48,24 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
         String apiKeyValue = extractApiKey(request);
 
         if (apiKeyValue != null) {
-            ApiKey apiKey = apiKeyService.getApiKeyByKey(apiKeyValue);
+            ApiKey apiKey = apiKeyMapper.selectOne(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ApiKey>()
+                            .eq(ApiKey::getApiKey, apiKeyValue));
             if (apiKey != null && "active".equals(apiKey.getStatus())) {
-                log.debug("API Key 认证成功: userId={}, keyName={}", apiKey.getUserId(), apiKey.getName());
+                log.debug("API Key 认证成功: userId={}, apiKeyId={}, keyName={}", apiKey.getUserId(), apiKey.getId(), apiKey.getName());
 
                 // 更新最后使用时间和调用次数
                 updateApiKeyUsage(apiKey);
 
-                // 构建认证对象，使用 API Key 所属用户的 userId 作为 principal
+                // 构建认证对象
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(
                                 "apikey-user-" + apiKey.getUserId(),
                                 null,
                                 List.of(new SimpleGrantedAuthority("ROLE_USER"))
                         );
-                // 将 userId 存入 details，后续 ChatService 可获取
-                authentication.setDetails(apiKey.getUserId());
+                // 将 userId 和 apiKeyId 存入 details，后续 ChatService 可获取
+                authentication.setDetails(Map.of("userId", apiKey.getUserId(), "apiKeyId", apiKey.getId()));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             } else if (apiKeyValue.startsWith(API_KEY_PREFIX)) {
                 log.warn("API Key 认证失败: key 无效或已禁用");
@@ -102,8 +105,7 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
         try {
             apiKey.setTotalCalls(apiKey.getTotalCalls() + 1);
             apiKey.setLastUsedAt(LocalDateTime.now());
-            // 通过 service 更新会触发事务，这里直接用 mapper 更新更轻量
-            // 但为了简单起见，使用 service 的方式
+            apiKeyMapper.updateById(apiKey);
         } catch (Exception e) {
             log.warn("更新 API Key 使用统计失败: {}", e.getMessage());
         }

@@ -2,7 +2,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useApiStore, API_BASE } from '@/stores/api'
-import { KeyRound, Plus, Copy, Trash2, Eye, EyeOff, MessageSquare, Check } from 'lucide-vue-next'
+import { KeyRound, Plus, Copy, Trash2, Eye, EyeOff, MessageSquare, Check, BarChart3 } from 'lucide-vue-next'
 
 const api = useApiStore()
 
@@ -10,8 +10,9 @@ const api = useApiStore()
 const loading = ref(false)
 const showAddModal = ref(false)
 const showTestModal = ref(false)
+const showUsageModal = ref(false)
 const showKey = ref({})
-const copiedId = ref(null)          // 复制成功反馈
+const copiedId = ref(null)
 
 const apiKeys = ref([])
 const users = ref([])
@@ -23,13 +24,18 @@ const newKey = ref({ name: '', userId: '' })
 // 测试对话表单
 const testForm = ref({
   apiKey: '',
-  callType: 'auto',   // auto=自动选择，model=指定模型
+  callType: 'auto',
   modelId: '',
   message: '',
   streaming: true,
   response: '',
   loading: false
 })
+
+// 使用明细
+const usageRecords = ref([])
+const usageLoading = ref(false)
+const currentUsageKey = ref(null)
 
 onMounted(loadData)
 
@@ -114,6 +120,26 @@ function openTest(apiKeyObj) {
     loading: false
   }
   showTestModal.value = true
+}
+
+/** 打开使用明细弹窗 */
+async function openUsage(apiKeyObj) {
+  currentUsageKey.value = apiKeyObj
+  usageRecords.value = []
+  usageLoading.value = true
+  showUsageModal.value = true
+
+  const res = await api.get(`/api-keys/${apiKeyObj.id}/usage`)
+  if (res.code === 200) {
+    usageRecords.value = res.data || []
+  }
+  usageLoading.value = false
+}
+
+/** 格式化金额 */
+function formatAmount(val) {
+  if (!val) return '0.00'
+  return Math.abs(Number(val)).toFixed(4)
 }
 
 /** 执行测试对话 */
@@ -223,6 +249,8 @@ async function runTest() {
               <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">所属用户</th>
               <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">API Key</th>
               <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">调用次数</th>
+              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">总Token</th>
+              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">总费用</th>
               <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">最后使用</th>
               <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">状态</th>
               <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">操作</th>
@@ -253,6 +281,8 @@ async function runTest() {
                 </div>
               </td>
               <td class="py-4 text-sm text-slate-300">{{ (apiKey.totalCalls || 0).toLocaleString() }}</td>
+              <td class="py-4 text-sm text-slate-300">{{ ((apiKey.totalInputTokens || 0) + (apiKey.totalOutputTokens || 0)).toLocaleString() }}</td>
+              <td class="py-4 text-sm text-emerald-400">¥{{ apiKey.totalCost ? Number(apiKey.totalCost).toFixed(4) : '0.0000' }}</td>
               <td class="py-4 text-sm text-slate-400">{{ apiKey.lastUsedAt ? new Date(apiKey.lastUsedAt).toLocaleString() : '从未' }}</td>
               <td class="py-4">
                 <span :class="['px-2 py-1 text-xs rounded-full border', apiKey.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20']">
@@ -261,6 +291,9 @@ async function runTest() {
               </td>
               <td class="py-4">
                 <div class="flex items-center gap-1">
+                  <button @click="openUsage(apiKey)" class="p-2 rounded-lg bg-white/5 text-amber-400 hover:bg-amber-500/10" title="使用明细">
+                    <BarChart3 class="w-4 h-4" />
+                  </button>
                   <button @click="openTest(apiKey)" class="p-2 rounded-lg bg-white/5 text-cyan-400 hover:bg-cyan-500/10" title="测试对话">
                     <MessageSquare class="w-4 h-4" />
                   </button>
@@ -324,6 +357,69 @@ async function runTest() {
         <div class="flex gap-3 mt-6">
           <button @click="showAddModal = false" class="btn-secondary flex-1">取消</button>
           <button @click="createKey" class="btn-primary flex-1">生成并分配</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 使用明细弹窗 -->
+    <div v-if="showUsageModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" @click.self="showUsageModal = false">
+      <div class="glass-card w-full max-w-4xl p-6 animate-slide-up flex flex-col max-h-[85vh]">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-bold text-white">使用明细</h2>
+          <button @click="showUsageModal = false" class="text-slate-400 hover:text-white">
+            <span class="text-xl">&times;</span>
+          </button>
+        </div>
+
+        <!-- 汇总统计 -->
+        <div v-if="currentUsageKey" class="grid grid-cols-4 gap-4 mb-4">
+          <div class="bg-slate-800/50 rounded-lg p-4 border border-white/5 text-center">
+            <p class="text-xs text-slate-400 mb-1">调用次数</p>
+            <p class="text-lg font-semibold text-white">{{ (currentUsageKey.totalCalls || 0).toLocaleString() }}</p>
+          </div>
+          <div class="bg-slate-800/50 rounded-lg p-4 border border-white/5 text-center">
+            <p class="text-xs text-slate-400 mb-1">输入 Token</p>
+            <p class="text-lg font-semibold text-cyan-400">{{ (currentUsageKey.totalInputTokens || 0).toLocaleString() }}</p>
+          </div>
+          <div class="bg-slate-800/50 rounded-lg p-4 border border-white/5 text-center">
+            <p class="text-xs text-slate-400 mb-1">输出 Token</p>
+            <p class="text-lg font-semibold text-amber-400">{{ (currentUsageKey.totalOutputTokens || 0).toLocaleString() }}</p>
+          </div>
+          <div class="bg-slate-800/50 rounded-lg p-4 border border-white/5 text-center">
+            <p class="text-xs text-slate-400 mb-1">总费用</p>
+            <p class="text-lg font-semibold text-emerald-400">¥{{ currentUsageKey.totalCost ? Number(currentUsageKey.totalCost).toFixed(4) : '0.0000' }}</p>
+          </div>
+        </div>
+
+        <!-- 明细列表 -->
+        <div class="flex-1 overflow-y-auto">
+          <div v-if="usageLoading" class="flex items-center justify-center py-8">
+            <div class="w-5 h-5 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+            <span class="ml-2 text-slate-400 text-sm">加载中...</span>
+          </div>
+          <div v-else-if="usageRecords.length === 0" class="text-center py-8 text-slate-500 text-sm">
+            暂无调用记录
+          </div>
+          <table v-else class="w-full">
+            <thead>
+              <tr class="border-b border-white/5">
+                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">时间</th>
+                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">输入Token</th>
+                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">输出Token</th>
+                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">费用</th>
+                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">详情</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-white/5">
+              <tr v-for="record in usageRecords" :key="record.id" class="hover:bg-white/5 transition-colors">
+                <td class="py-3 text-sm text-slate-300">{{ record.createdAt ? new Date(record.createdAt).toLocaleString() : '-' }}</td>
+                <td class="py-3 text-sm text-cyan-400">{{ (record.inputTokens || 0).toLocaleString() }}</td>
+                <td class="py-3 text-sm text-amber-400">{{ (record.outputTokens || 0).toLocaleString() }}</td>
+                <td class="py-3 text-sm text-emerald-400">¥{{ formatAmount(record.amount) }}</td>
+                <td class="py-3 text-sm text-slate-400 max-w-[200px] truncate" :title="record.detail">{{ record.detail || '-' }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

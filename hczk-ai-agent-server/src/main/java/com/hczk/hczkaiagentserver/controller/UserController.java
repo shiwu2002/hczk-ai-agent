@@ -1,8 +1,14 @@
 package com.hczk.hczkaiagentserver.controller;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hczk.hczkaiagentserver.common.Result;
 import com.hczk.hczkaiagentserver.dto.UserDTO;
+import com.hczk.hczkaiagentserver.entity.ApiKey;
+import com.hczk.hczkaiagentserver.entity.BillingRecord;
 import com.hczk.hczkaiagentserver.entity.User;
+import com.hczk.hczkaiagentserver.enums.BillingType;
+import com.hczk.hczkaiagentserver.mapper.ApiKeyMapper;
+import com.hczk.hczkaiagentserver.mapper.BillingRecordMapper;
 import com.hczk.hczkaiagentserver.service.UserService;
 import com.hczk.hczkaiagentserver.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +28,8 @@ public class UserController {
 
     private final UserService userService;
     private final JwtUtil jwtUtil;
+    private final BillingRecordMapper billingRecordMapper;
+    private final ApiKeyMapper apiKeyMapper;
 
     /**
      * 获取当前登录用户信息
@@ -56,5 +64,30 @@ public class UserController {
     @PutMapping("/{id}")
     public Result<User> updateUser(@PathVariable Long id, @RequestBody UserDTO userDTO) {
         return Result.success(userService.updateUser(id, userDTO));
+    }
+
+    /**
+     * 获取指定用户的使用明细（单次调用记录）
+     */
+    @GetMapping("/{id}/usage")
+    public Result<List<BillingRecord>> getUserUsage(@PathVariable Long id) {
+        List<BillingRecord> records = billingRecordMapper.selectList(
+                new LambdaQueryWrapper<BillingRecord>()
+                        .eq(BillingRecord::getUserId, id)
+                        .eq(BillingRecord::getType, BillingType.TOKEN_USAGE)
+                        .orderByDesc(BillingRecord::getCreatedAt));
+        return Result.success(records);
+    }
+
+    /**
+     * 获取指定用户的 API Key 列表
+     */
+    @GetMapping("/{id}/api-keys")
+    public Result<List<ApiKey>> getUserApiKeys(@PathVariable Long id) {
+        List<ApiKey> keys = apiKeyMapper.selectList(
+                new LambdaQueryWrapper<ApiKey>()
+                        .eq(ApiKey::getUserId, id)
+                        .orderByDesc(ApiKey::getCreatedAt));
+        return Result.success(keys);
     }
 }
