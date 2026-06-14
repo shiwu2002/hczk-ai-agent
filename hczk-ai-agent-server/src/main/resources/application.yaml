@@ -44,8 +44,8 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 100MB
+      max-file-size: 50MB
+      max-request-size: 200MB
 
 jwt:
   expiration: 86400000
@@ -67,6 +67,45 @@ platform:
     input-multiplier: 1.0
     output-multiplier: 1.0
     min-recharge: 10.00
+
+# 知识库服务配置
+knowledge:
+  milvus:
+    address: 192.168.1.3:19530
+    username:
+    password:
+    connect-timeout-ms: 10000
+    keep-alive-time-ms: 30000
+  embedding:
+    base-url: http://192.168.1.3:1234/v1
+    api-key:
+    model: text-embedding-qwen3-embedding
+    dimension: 2560
+    timeout-ms: 30000
+    batch-size: 20
+    cache-max-size: 10000
+  ingest:
+    max-text-size: 5242880
+    chunk-size: 800
+    chunk-overlap-sentences: 2
+    milvus-batch-size: 100
+  retrieve:
+    default-top-k: 5
+    max-top-k: 50
+    hybrid-confidence: 0.7
+    vector-confidence: 0.5
+    keyword-confidence: 0.3
+    fallback-confidence: 0.2
+    question-weight: 1.2
+    nprobe: 16
+  relevance:
+    half-life-ms: 2592000000
+    min-score: 0.01
+    max-score: 10.0
+    default-score: 1.0
+    adopt-ratio-weight: 2.0
+    adopt-bonus-weight: 0.1
+    update-threshold: 0.01
 
 logging:
   pattern:

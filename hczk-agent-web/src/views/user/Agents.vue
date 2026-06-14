@@ -47,8 +47,8 @@ async function createAgent() {
   const res = await api.post('/agents', {
     name: newAgent.value.name,
     description: newAgent.value.description,
-    model: { id: parseInt(newAgent.value.modelId) },
-    user: { id: authStore.user?.id }
+    modelId: parseInt(newAgent.value.modelId),
+    userId: authStore.user?.id
   })
   if (res.code === 200) {
     showCreate.value = false

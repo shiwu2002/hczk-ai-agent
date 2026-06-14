@@ -52,4 +52,13 @@ public class ApiKeyServiceImpl implements ApiKeyService {
         }
         return key;
     }
+
+    @Override
+    public ApiKey getActiveApiKey(String apiKey) {
+        ApiKey key = apiKeyMapper.findByApiKey(apiKey);
+        if (key == null) {
+            throw new RuntimeException("API Key 无效或已禁用");
+        }
+        return key;
+    }
 }

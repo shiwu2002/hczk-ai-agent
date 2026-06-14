@@ -10,4 +10,5 @@ public interface ApiKeyService {
     ApiKey createApiKey(Long userId, String name);
     void deleteApiKey(Long id);
     ApiKey getApiKeyByKey(String apiKey);
+    ApiKey getActiveApiKey(String apiKey);
 }
