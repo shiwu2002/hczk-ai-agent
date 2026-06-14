@@ -48,8 +48,8 @@ public class SecurityConfig {
                 .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                 // 放行 OPTIONS 预检请求
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                // 放行公开接口：认证、Webhook 回调、健康检查、错误页
-                .requestMatchers("/auth/**", "/webhook/**", "/health/**", "/error").permitAll()
+                // 放行公开接口：认证、Webhook 回调、健康检查、运行时状态检测、错误页
+                .requestMatchers("/auth/**", "/webhook/**", "/health/**", "/platform/runtime/health", "/error").permitAll()
                 // 其余请求均需认证
                 .anyRequest().authenticated()
             )

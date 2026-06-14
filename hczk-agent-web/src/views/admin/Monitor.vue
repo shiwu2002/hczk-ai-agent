@@ -9,7 +9,7 @@ let refreshInterval = null;
 // 监控数据
 const skills = ref([]);
 const bindings = ref([]);
-const runtimeStatus = ref({ online: false, message: '' });
+const runtimeStatus = ref({ online: false, message: '', url: '', status: '', version: '', uptime: 0, components: null, runtime: null });
 const stats = ref({
  totalSkills: 0,
  activeSkills: 0,
@@ -40,17 +40,59 @@ async function loadData() {
 }
 async function checkRuntimeStatus() {
  try {
- const res = await fetch('http://localhost:3000/api/health');
- if (res.ok) {
- const data = await res.json();
- runtimeStatus.value = { online: true, message: data.status === 'ok' ? '运行正常' : '状态异常' };
+ const res = await api.get('/platform/runtime/health');
+ if (res.code === 200 && res.data) {
+ runtimeStatus.value = {
+ online: res.data.online,
+ status: res.data.status || '',
+ message: res.data.message,
+ url: res.data.url || '',
+ version: res.data.version || '',
+ uptime: res.data.uptime || 0,
+ components: res.data.components || null,
+ runtime: res.data.runtime || null
+ };
  }
  else {
- runtimeStatus.value = { online: false, message: '服务不可达' };
+ runtimeStatus.value = { online: false, message: '检测接口异常', url: '', status: '', version: '', uptime: 0, components: null, runtime: null };
  }
  }
  catch (error) {
- runtimeStatus.value = { online: false, message: '连接失败: ' + error.message };
+ runtimeStatus.value = { online: false, message: '连接失败: ' + error.message, url: '', status: '', version: '', uptime: 0, components: null, runtime: null };
+ }
+}
+function formatUptime(ms) {
+ if (!ms) return '--';
+ const s = Math.floor(ms / 1000);
+ if (s < 60) return s + '秒';
+ if (s < 3600) return Math.floor(s / 60) + '分' + (s % 60) + '秒';
+ const h = Math.floor(s / 3600);
+ if (h < 24) return h + '时' + Math.floor((s % 3600) / 60) + '分';
+ return Math.floor(h / 24) + '天' + (h % 24) + '时';
+}
+function getComponentStatusColor(status) {
+ switch (status) {
+ case 'connected':
+ case 'available':
+ case 'alive':
+ case 'ready': return 'text-emerald-400';
+ case 'disconnected':
+ case 'unavailable': return 'text-red-400';
+ default: return 'text-amber-400';
+ }
+}
+function getRuntimeBadgeClass() {
+ switch (runtimeStatus.value.status) {
+ case 'ok': return 'bg-emerald-500/10 text-emerald-400';
+ case 'degraded': return 'bg-amber-500/10 text-amber-400';
+ default: return 'bg-red-500/10 text-red-400';
+ }
+}
+function getRuntimeBadgeText() {
+ switch (runtimeStatus.value.status) {
+ case 'ok': return '在线';
+ case 'degraded': return '降级';
+ default: return '离线';
  }
 }
 function calculateStats() {
@@ -134,22 +176,63 @@ function getBindingModeColor(binding) {
     <div class="glass-card p-6">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-4">
-          <div :class="['w-14 h-14 rounded-xl flex items-center justify-center', runtimeStatus.online ? 'bg-emerald-500/20' : 'bg-red-500/20']">
-            <component :is="runtimeStatus.online ? Wifi : WifiOff" :class="['w-7 h-7', runtimeStatus.online ? 'text-emerald-400' : 'text-red-400']" />
+          <div :class="['w-14 h-14 rounded-xl flex items-center justify-center', runtimeStatus.online ? (runtimeStatus.status === 'degraded' ? 'bg-amber-500/20' : 'bg-emerald-500/20') : 'bg-red-500/20']">
+            <component :is="runtimeStatus.online ? Wifi : WifiOff" :class="['w-7 h-7', runtimeStatus.online ? (runtimeStatus.status === 'degraded' ? 'text-amber-400' : 'text-emerald-400') : 'text-red-400']" />
           </div>
           <div>
             <h3 class="text-lg font-semibold text-white">通用智能体运行时</h3>
             <div class="flex items-center gap-2 mt-1">
-              <span :class="['px-2 py-0.5 text-xs rounded-full', runtimeStatus.online ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400']">
-                {{ runtimeStatus.online ? '在线' : '离线' }}
+              <span :class="['px-2 py-0.5 text-xs rounded-full', getRuntimeBadgeClass()]">
+                {{ getRuntimeBadgeText() }}
               </span>
               <span class="text-sm text-slate-400">{{ runtimeStatus.message }}</span>
+              <span v-if="runtimeStatus.version" class="text-xs text-slate-500">v{{ runtimeStatus.version }}</span>
             </div>
           </div>
         </div>
-        <div class="flex items-center gap-2">
-          <Clock class="w-4 h-4 text-slate-500" />
-          <span class="text-sm text-slate-500">http://localhost:3000</span>
+        <div class="flex items-center gap-4 text-sm text-slate-500">
+          <span v-if="runtimeStatus.uptime" class="flex items-center gap-1">
+            <Clock class="w-3.5 h-3.5" />
+            {{ formatUptime(runtimeStatus.uptime) }}
+          </span>
+          <span>{{ runtimeStatus.url || '--' }}</span>
+        </div>
+      </div>
+
+      <!-- 组件状态详情（在线时展示） -->
+      <div v-if="runtimeStatus.online && runtimeStatus.components" class="mt-4 pt-4 border-t border-white/10">
+        <div class="grid grid-cols-3 gap-4">
+          <!-- 数据库 -->
+          <div class="flex items-center gap-2 text-sm">
+            <Server class="w-4 h-4 text-slate-500" />
+            <span class="text-slate-400">数据库</span>
+            <span :class="getComponentStatusColor(runtimeStatus.components.database?.status)">
+              {{ runtimeStatus.components.database?.status === 'connected' ? '已连接' : (runtimeStatus.components.database?.status || '--') }}
+            </span>
+            <span v-if="runtimeStatus.components.database?.latencyMs" class="text-xs text-slate-600">{{ runtimeStatus.components.database.latencyMs }}ms</span>
+          </div>
+          <!-- 知识库 -->
+          <div class="flex items-center gap-2 text-sm">
+            <Bot class="w-4 h-4 text-slate-500" />
+            <span class="text-slate-400">知识库</span>
+            <span :class="getComponentStatusColor(runtimeStatus.components.knowledge?.status)">
+              {{ runtimeStatus.components.knowledge?.status === 'connected' ? '已连接' : (runtimeStatus.components.knowledge?.status || '--') }}
+            </span>
+          </div>
+          <!-- LLM -->
+          <div class="flex items-center gap-2 text-sm">
+            <TrendingUp class="w-4 h-4 text-slate-500" />
+            <span class="text-slate-400">LLM</span>
+            <span :class="getComponentStatusColor(runtimeStatus.components.llm?.status)">
+              {{ runtimeStatus.components.llm?.status === 'available' ? '可用' : (runtimeStatus.components.llm?.status || '--') }}
+            </span>
+            <span v-if="runtimeStatus.components.llm?.model" class="text-xs text-slate-600">{{ runtimeStatus.components.llm.model }}</span>
+          </div>
+        </div>
+        <!-- 运行时信息 -->
+        <div v-if="runtimeStatus.runtime" class="mt-3 flex items-center gap-4 text-xs text-slate-500">
+          <span>Skills: {{ runtimeStatus.runtime.skillsCount ?? 0 }}</span>
+          <span>绑定: {{ runtimeStatus.runtime.bindingsCount ?? 0 }}</span>
         </div>
       </div>
     </div>
