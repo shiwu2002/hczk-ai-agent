@@ -39,6 +39,40 @@ public class AgentServiceImpl implements AgentService {
     @Override
     @Transactional
     public Agent createAgent(Agent agent) {
+        if (agent.getUserId() == null) {
+            throw new IllegalArgumentException("user_id 不能为空");
+        }
+        if (agent.getName() == null || agent.getName().trim().isEmpty()) {
+            throw new IllegalArgumentException("智能体名称不能为空");
+        }
+        
+        String agentType = agent.getAgentType();
+        if (agentType == null) {
+            agentType = "MODEL";
+            agent.setAgentType(agentType);
+        }
+        
+        // 根据类型验证必填字段
+        switch (agentType) {
+            case "MODEL":
+                if (agent.getModelId() == null) {
+                    throw new IllegalArgumentException("MODEL 类型智能体必须绑定模型");
+                }
+                break;
+            case "SKILL":
+                if (agent.getSkillId() == null || agent.getSkillId().trim().isEmpty()) {
+                    throw new IllegalArgumentException("SKILL 类型智能体必须绑定 Skill");
+                }
+                break;
+            case "ENDPOINT":
+                if (agent.getEndpoint() == null || agent.getEndpoint().trim().isEmpty()) {
+                    throw new IllegalArgumentException("ENDPOINT 类型智能体必须配置 Endpoint 地址");
+                }
+                break;
+            default:
+                throw new IllegalArgumentException("未知智能体类型: " + agentType);
+        }
+        
         agentMapper.insert(agent);
         return agent;
     }
@@ -49,8 +83,27 @@ public class AgentServiceImpl implements AgentService {
         Agent existing = getAgentById(id);
         existing.setName(agent.getName());
         existing.setDescription(agent.getDescription());
-        existing.setModelId(agent.getModelId());
         existing.setAgentType(agent.getAgentType());
+        
+        // 根据类型更新对应字段
+        String agentType = agent.getAgentType();
+        if ("MODEL".equals(agentType)) {
+            existing.setModelId(agent.getModelId());
+            existing.setSkillId(null);
+            existing.setEndpoint(null);
+            existing.setEndpointAuthHeader(null);
+        } else if ("SKILL".equals(agentType)) {
+            existing.setSkillId(agent.getSkillId());
+            existing.setModelId(null);
+            existing.setEndpoint(null);
+            existing.setEndpointAuthHeader(null);
+        } else if ("ENDPOINT".equals(agentType)) {
+            existing.setEndpoint(agent.getEndpoint());
+            existing.setEndpointAuthHeader(agent.getEndpointAuthHeader());
+            existing.setModelId(null);
+            existing.setSkillId(null);
+        }
+        
         agentMapper.updateById(existing);
         return existing;
     }

@@ -231,6 +231,242 @@ CREATE TABLE chat_logs (
     CONSTRAINT fk_chatlog_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='对话内容记录表';
 
+-- ------------------------------
+-- 表9：技能包注册表 skill
+-- 存储 Skill 配置包定义，用于智能体运行时调度
+-- ------------------------------
+DROP TABLE IF EXISTS skill;
+CREATE TABLE skill (
+    id                  VARCHAR(64)    PRIMARY KEY COMMENT '技能包ID(UUID)',
+    name                VARCHAR(128)   NOT NULL COMMENT '技能包名称',
+    category            VARCHAR(32)         COMMENT '分类：customer_service / sales / faq / complaint / guide / custom',
+    version             VARCHAR(32)    NOT NULL DEFAULT '1.0.0' COMMENT '版本号',
+    description         TEXT                COMMENT '技能包描述',
+    persona             JSON           NOT NULL COMMENT '人设定义 JSON：{name, systemPrompt, tone, instructions}',
+    capabilities        JSON           NOT NULL COMMENT '能力定义 JSON：{tools, knowledgeRetrieval, collectionName, maxToolIterations}',
+    workflow            JSON           NOT NULL COMMENT '执行流程 DAG JSON：{entry, nodes[], edges[]}',
+    config              JSON           NOT NULL COMMENT '运行时配置 JSON：{maxIterations, toolTimeoutMs, toolMaxRetries, contextWindowSize, temperature}',
+    status              VARCHAR(20)    NOT NULL DEFAULT 'draft' COMMENT '状态：active启用 / inactive停用 / draft草稿',
+    created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+
+    KEY idx_status (status),
+    KEY idx_category (category)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='技能包注册表';
+
+-- ------------------------------
+-- 表10：商家智能体绑定表 merchant_agent_binding
+-- 核心路由表，支持 Skill 模式和 Endpoint 模式
+-- ------------------------------
+DROP TABLE IF EXISTS merchant_agent_binding;
+CREATE TABLE merchant_agent_binding (
+    id                      BIGINT AUTO_INCREMENT COMMENT '主键ID'
+    PRIMARY KEY,
+    merchant_id             VARCHAR(64)    NOT NULL COMMENT '商家ID',
+    skill_id                VARCHAR(64)         COMMENT 'Skill模式：绑定的技能包ID',
+    agent_endpoint          VARCHAR(256)        COMMENT 'Endpoint模式：定制智能体地址',
+    agent_auth_header       VARCHAR(256)        COMMENT 'Endpoint模式：认证头',
+    persona_override        JSON                COMMENT '覆盖人设配置',
+    capabilities_override   JSON                COMMENT '覆盖能力配置',
+    config_override         JSON                COMMENT '覆盖运行时配置',
+    tools_config            JSON                COMMENT '商家专属工具配置',
+    enabled                 BOOLEAN        NOT NULL DEFAULT TRUE COMMENT '是否启用',
+    created_at              DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at              DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+
+    UNIQUE KEY uk_merchant (merchant_id),
+    KEY idx_skill_id (skill_id),
+    KEY idx_enabled (enabled)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家智能体绑定表';
+
+-- ------------------------------
+-- 表11：会话表 session
+-- 用户对话会话记录
+-- ------------------------------
+DROP TABLE IF EXISTS session;
+CREATE TABLE session (
+    id                  VARCHAR(64)    PRIMARY KEY COMMENT '会话ID',
+    skill_id            VARCHAR(64)         COMMENT '关联技能包ID',
+    merchant_id         VARCHAR(64)    NOT NULL COMMENT '商家ID',
+    user_id             VARCHAR(64)         COMMENT '用户ID',
+    channel             VARCHAR(32)    NOT NULL DEFAULT 'web' COMMENT '渠道',
+    status              VARCHAR(20)    NOT NULL DEFAULT 'active' COMMENT '状态：active进行中 / closed已关闭 / timeout超时',
+    message_count       INT            NOT NULL DEFAULT 0 COMMENT '消息数量',
+    started_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '开始时间',
+    ended_at            DATETIME             COMMENT '结束时间',
+
+    KEY idx_merchant_id (merchant_id),
+    KEY idx_status (status),
+    KEY idx_started_at (started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='会话记录表';
+
+-- ------------------------------
+-- 表12：消息表 message
+-- 会话消息记录
+-- ------------------------------
+DROP TABLE IF EXISTS message;
+CREATE TABLE message (
+    id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
+    PRIMARY KEY,
+    session_id          VARCHAR(64)    NOT NULL COMMENT '会话ID',
+    role                VARCHAR(20)    NOT NULL COMMENT '角色：system / user / assistant / tool',
+    content             TEXT           NOT NULL COMMENT '消息内容',
+    metadata            JSON                COMMENT '元数据',
+    created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+
+    KEY idx_session_id (session_id),
+    KEY idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='消息记录表';
+
+-- ------------------------------
+-- 表13：技能包调用计量表 skill_usage
+-- ------------------------------
+DROP TABLE IF EXISTS skill_usage;
+CREATE TABLE skill_usage (
+    id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
+    PRIMARY KEY,
+    skill_id            VARCHAR(64)         COMMENT '技能包ID',
+    merchant_id         VARCHAR(64)    NOT NULL COMMENT '商家ID',
+    user_id             VARCHAR(64)         COMMENT '用户ID',
+    session_id          VARCHAR(64)         COMMENT '会话ID',
+    call_type           VARCHAR(20)    NOT NULL COMMENT '调用类型：chat / stream / tool / knowledge',
+    input_tokens        BIGINT         NOT NULL DEFAULT 0 COMMENT '输入Token数',
+    output_tokens       BIGINT         NOT NULL DEFAULT 0 COMMENT '输出Token数',
+    tool_calls_count    INT            NOT NULL DEFAULT 0 COMMENT '工具调用次数',
+    retrieval_count     INT            NOT NULL DEFAULT 0 COMMENT '知识检索次数',
+    billing_type        VARCHAR(32)         COMMENT '计费类型',
+    cost                DECIMAL(10,4)  NOT NULL DEFAULT 0 COMMENT '费用',
+    duration_ms         INT                 COMMENT '耗时(毫秒)',
+    status              VARCHAR(20)    NOT NULL COMMENT '状态：success / error / timeout',
+    error_message       TEXT                COMMENT '错误信息',
+    called_at           DATETIME       NOT NULL COMMENT '调用时间',
+    created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+
+    KEY idx_skill_id (skill_id),
+    KEY idx_merchant_id (merchant_id),
+    KEY idx_called_at (called_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='技能包调用计量表';
+
+-- ------------------------------
+-- 表14：限流规则表 skill_rate_limit
+-- ------------------------------
+DROP TABLE IF EXISTS skill_rate_limit;
+CREATE TABLE skill_rate_limit (
+    id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
+    PRIMARY KEY,
+    skill_id            VARCHAR(64)    NOT NULL COMMENT '技能包ID',
+    limit_type          VARCHAR(20)    NOT NULL COMMENT '限流类型：rpm / tpm / concurrent',
+    limit_value         INT            NOT NULL COMMENT '限流值',
+    time_window_sec     INT            NOT NULL DEFAULT 60 COMMENT '时间窗口(秒)',
+
+    KEY idx_skill_id (skill_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='限流规则表';
+
+-- ------------------------------
+-- 表15：审计日志表 audit_log
+-- ------------------------------
+DROP TABLE IF EXISTS audit_log;
+CREATE TABLE audit_log (
+    id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
+    PRIMARY KEY,
+    operator_type       VARCHAR(20)    NOT NULL COMMENT '操作者类型：platform_admin / merchant / system',
+    operator_id         VARCHAR(64)         COMMENT '操作者ID',
+    action              VARCHAR(64)    NOT NULL COMMENT '操作动作',
+    target_type         VARCHAR(32)         COMMENT '目标类型',
+    target_id           VARCHAR(64)         COMMENT '目标ID',
+    detail              JSON                COMMENT '操作详情',
+    ip_address          VARCHAR(64)         COMMENT 'IP地址',
+    created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+
+    KEY idx_target (target_type, target_id),
+    KEY idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='审计日志表';
+
+-- ------------------------------
+-- 表16：商家余额表 merchant_balance
+-- ------------------------------
+DROP TABLE IF EXISTS merchant_balance;
+CREATE TABLE merchant_balance (
+    id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
+    PRIMARY KEY,
+    merchant_id         VARCHAR(64)    NOT NULL COMMENT '商家ID',
+    balance             DECIMAL(12,4)  NOT NULL DEFAULT 0 COMMENT '余额',
+    frozen_balance      DECIMAL(12,4)  NOT NULL DEFAULT 0 COMMENT '冻结余额',
+    total_recharge      DECIMAL(12,4)  NOT NULL DEFAULT 0 COMMENT '累计充值',
+    total_consumed      DECIMAL(12,4)  NOT NULL DEFAULT 0 COMMENT '累计消费',
+    updated_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+
+    UNIQUE KEY uk_merchant (merchant_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家余额表';
+
+-- ------------------------------
+-- 表17：商家交易流水表 merchant_transaction
+-- ------------------------------
+DROP TABLE IF EXISTS merchant_transaction;
+CREATE TABLE merchant_transaction (
+    id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
+    PRIMARY KEY,
+    merchant_id         VARCHAR(64)    NOT NULL COMMENT '商家ID',
+    type                VARCHAR(20)    NOT NULL COMMENT '类型：recharge / consume / refund / freeze / unfreeze',
+    amount              DECIMAL(12,4)  NOT NULL COMMENT '金额',
+    balance_after       DECIMAL(12,4)  NOT NULL COMMENT '操作后余额',
+    related_usage_id    BIGINT              COMMENT '关联用量记录ID',
+    description         VARCHAR(256)        COMMENT '描述',
+    created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+
+    KEY idx_merchant_id (merchant_id),
+    KEY idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家交易流水表';
+
+-- ------------------------------
+-- 表18：技能包计费规则表 skill_pricing
+-- ------------------------------
+DROP TABLE IF EXISTS skill_pricing;
+CREATE TABLE skill_pricing (
+    id                      BIGINT AUTO_INCREMENT COMMENT '主键ID'
+    PRIMARY KEY,
+    skill_id                VARCHAR(64)    NOT NULL COMMENT '技能包ID',
+    billing_type            VARCHAR(20)    NOT NULL COMMENT '计费类型：per_call / per_token / per_session / monthly',
+    price_per_call          DECIMAL(10,4)       COMMENT '每次调用价格',
+    price_per_input_token   DECIMAL(10,6)       COMMENT '输入Token价格',
+    price_per_output_token  DECIMAL(10,6)       COMMENT '输出Token价格',
+    price_per_session       DECIMAL(10,4)       COMMENT '每会话价格',
+    monthly_price           DECIMAL(10,2)       COMMENT '月套餐价格',
+    monthly_included_calls  INT                 COMMENT '月套餐包含调用次数',
+    free_calls_per_month    INT            NOT NULL DEFAULT 0 COMMENT '每月免费调用次数',
+    effective_from          DATETIME       NOT NULL COMMENT '生效时间',
+    effective_to            DATETIME             COMMENT '失效时间',
+    created_at              DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+
+    KEY idx_skill_id (skill_id),
+    KEY idx_effective_from (effective_from)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='技能包计费规则表';
+
+-- ------------------------------
+-- 表19：知识库归属表 knowledge_bases
+-- 记录知识库与智能体/用户的归属关系
+-- ------------------------------
+DROP TABLE IF EXISTS knowledge_bases;
+CREATE TABLE knowledge_bases (
+    id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
+    PRIMARY KEY,
+    name                VARCHAR(128)   NOT NULL COMMENT '知识库名称(Milvus collection名)',
+    description         VARCHAR(500)        COMMENT '知识库描述',
+    owner_type          VARCHAR(20)    NOT NULL DEFAULT 'AGENT' COMMENT '归属类型：AGENT智能体 / USER用户',
+    owner_id            BIGINT         NOT NULL COMMENT '归属对象ID(agents.id或users.id)',
+    agent_id            VARCHAR(64)    NOT NULL COMMENT 'Milvus集合命名用的agentId字符串',
+    collection_name     VARCHAR(128)   NOT NULL DEFAULT 'default' COMMENT 'Milvus子集合名',
+    row_count           BIGINT         NOT NULL DEFAULT 0 COMMENT '文档条数缓存',
+    status              VARCHAR(20)    NOT NULL DEFAULT 'ACTIVE' COMMENT '状态：ACTIVE启用 / INACTIVE停用',
+    created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+
+    UNIQUE KEY uk_owner_collection (owner_type, owner_id, collection_name),
+    KEY idx_owner_type (owner_type),
+    KEY idx_agent_id (agent_id),
+    KEY idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库归属关系表';
+
 -- ============================================================
 -- 初始化基础测试/默认数据
 -- ============================================================
