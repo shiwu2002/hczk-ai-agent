@@ -49,7 +49,7 @@ public class UserServiceImpl implements UserService {
             throw new RuntimeException("密码错误");
         }
 
-        String token = jwtUtil.generateToken(user.getUsername(), user.getRole().name());
+        String token = jwtUtil.generateToken(user.getUsername(), user.getRole().getValue());
         String refreshToken = jwtUtil.generateRefreshToken(user.getUsername());
 
         LoginResponse response = new LoginResponse();
@@ -161,7 +161,7 @@ public class UserServiceImpl implements UserService {
         dto.setUserId(user.getUserId());
         dto.setUsername(user.getUsername());
         dto.setEmail(user.getEmail());
-        dto.setRole(user.getRole().name());
+        dto.setRole(user.getRole().getValue());
         dto.setBalance(user.getBalance());
         dto.setPhoneNumber(user.getPhoneNumber());
         dto.setCompanyName(user.getCompanyName());

@@ -37,10 +37,19 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
   const token = ref(localStorage.getItem('token') || '')
 
+  // 兼容旧缓存：旧格式 role 为字符串("ADMIN"/"USER")，新格式为后端返回的 Integer(0/1)
+  // 检测到旧格式时清除缓存，强制重新登录以从后端获取正确的 role 值
+  if (user.value && typeof user.value.role === 'string') {
+    user.value = null
+    token.value = ''
+    localStorage.removeItem('user')
+    localStorage.removeItem('token')
+  }
+
   // 计算属性：是否已认证（依据 token 是否存在）
   const isAuthenticated = computed(() => !!token.value)
-  // 计算属性：是否为管理员
-  const isAdmin = computed(() => user.value?.role === 'ADMIN')
+  // 计算属性：是否为管理员（后端返回 role=0 为管理员，role=1 为普通用户）
+  const isAdmin = computed(() => user.value?.role === 0)
   // 计算属性：当前用户信息
   const currentUser = computed(() => user.value)
 

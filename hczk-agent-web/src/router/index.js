@@ -61,12 +61,25 @@ const router = createRouter({
 
 router.beforeEach((to, from) => {
   const authStore = useAuthStore()
+
+  // 未登录访问受保护页面 → 跳转登录页
   if (!to.meta.public && !authStore.isAuthenticated) {
     return '/login'
-  } else if (to.path === '/login' && authStore.isAuthenticated) {
-    return authStore.isAdmin ? '/admin' : '/'
-  } else if (to.path.startsWith('/admin') && authStore.isAuthenticated && !authStore.isAdmin) {
-    return '/'
+  }
+
+  // 已登录访问登录页 → 按角色跳转对应首页
+  if (to.meta.public && authStore.isAuthenticated) {
+    return authStore.isAdmin ? '/admin/dashboard' : '/dashboard'
+  }
+
+  // 管理员访问用户页面(/) → 跳转管理后台
+  if (to.path.startsWith('/') && !to.path.startsWith('/admin') && authStore.isAdmin) {
+    return '/admin/dashboard'
+  }
+
+  // 普通用户访问管理页面(/admin) → 跳转用户首页
+  if (to.path.startsWith('/admin') && !authStore.isAdmin) {
+    return '/dashboard'
   }
 })
 

@@ -25,7 +25,7 @@ public class JwtUtil {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    public String generateToken(String username, String role) {
+    public String generateToken(String username, Integer role) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expiration);
 
@@ -55,9 +55,9 @@ public class JwtUtil {
         return claims.getSubject();
     }
 
-    public String getRoleFromToken(String token) {
+    public Integer getRoleFromToken(String token) {
         Claims claims = parseToken(token);
-        return claims.get("role", String.class);
+        return claims.get("role", Integer.class);
     }
 
     public boolean validateToken(String token) {

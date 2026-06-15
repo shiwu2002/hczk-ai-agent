@@ -18,8 +18,8 @@ public class UserDTO {
     private String username;
     /** 邮箱 */
     private String email;
-    /** 角色名称：ADMIN / USER */
-    private String role;
+    /** 角色：0=管理员(ADMIN) / 1=普通用户(USER) */
+    private Integer role;
     /** 账户余额（元） */
     private BigDecimal balance;
     /** 手机号 */

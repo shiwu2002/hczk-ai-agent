@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { BrainCircuit, Lock, User, ArrowRight } from 'lucide-vue-next'
@@ -22,7 +22,14 @@ async function handleLogin() {
 
   try {
     await authStore.login({ username: username.value, password: password.value })
-    router.push(authStore.isAdmin ? '/admin' : '/')
+    // 等待 store 状态更新完成后再跳转
+    await nextTick()
+    // 使用 replace 避免回退到登录页
+    if (authStore.isAdmin) {
+      await router.replace('/admin/dashboard')
+    } else {
+      await router.replace('/dashboard')
+    }
   } catch (e) {
     error.value = e.message || '登录失败'
   } finally {

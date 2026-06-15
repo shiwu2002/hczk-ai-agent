@@ -1,6 +1,6 @@
 <!-- 注册页面：用户通过邮箱验证码注册新账号，注册成功后自动登录并跳转 -->
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore, publicFetch } from '@/stores/auth'
 import { BrainCircuit, Lock, User, Mail, ShieldCheck, ArrowLeft, ArrowRight } from 'lucide-vue-next'
@@ -98,7 +98,14 @@ async function handleRegister() {
     }
     // 注册成功后自动登录
     await authStore.login({ username: username.value, password: password.value })
-    router.push(authStore.isAdmin ? '/admin' : '/')
+    // 等待 store 状态更新完成后再跳转
+    await nextTick()
+    // 使用 replace 避免回退到注册页
+    if (authStore.isAdmin) {
+      await router.replace('/admin/dashboard')
+    } else {
+      await router.replace('/dashboard')
+    }
   } catch (e) {
     error.value = e.message || '注册失败'
   } finally {
