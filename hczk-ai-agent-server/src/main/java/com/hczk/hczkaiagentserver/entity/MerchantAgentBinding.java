@@ -14,6 +14,12 @@ public class MerchantAgentBinding {
     @TableField("merchant_id")
     private String merchantId;
 
+    /**
+     * 绑定的平台注册智能体 ID（优先级最高）
+     */
+    @TableField("agent_id")
+    private Long agentId;
+
     @TableField("skill_id")
     private String skillId;
 

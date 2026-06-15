@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/agents")
@@ -50,5 +51,29 @@ public class AgentController {
     @PostMapping("/{id}/toggle")
     public Result<Agent> toggleStatus(@PathVariable Long id) {
         return Result.success(agentService.toggleStatus(id));
+    }
+
+    /**
+     * 批量检测所有智能体的健康状态
+     */
+    @GetMapping("/health")
+    public Result<Map<Long, Map<String, Object>>> checkAllHealth() {
+        return Result.success(agentService.checkAllAgentsHealth());
+    }
+
+    /**
+     * 检测单个智能体的健康状态
+     */
+    @GetMapping("/{id}/health")
+    public Result<Map<String, Object>> checkHealth(@PathVariable Long id) {
+        return Result.success(agentService.checkAgentHealth(id));
+    }
+
+    /**
+     * 获取智能体元信息（代理调用 infoEndpoint）
+     */
+    @GetMapping("/{id}/info")
+    public Result<Map<String, Object>> getAgentInfo(@PathVariable Long id) {
+        return Result.success(agentService.getAgentInfo(id));
     }
 }

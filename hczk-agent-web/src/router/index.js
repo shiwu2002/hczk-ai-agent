@@ -41,7 +41,6 @@ const router = createRouter({
       children: [
         { path: '', redirect: '/admin/dashboard' },
         { path: 'dashboard', name: 'admin-dashboard', component: () => import('@/views/admin/Dashboard.vue') },
-        { path: 'monitor', name: 'admin-monitor', component: () => import('@/views/admin/Monitor.vue') },
         { path: 'agents', name: 'admin-agents', component: () => import('@/views/admin/Agents.vue') },
         { path: 'skills', name: 'admin-skills', component: () => import('@/views/admin/Skills.vue') },
         { path: 'knowledge', name: 'admin-knowledge', component: () => import('@/views/admin/Knowledge.vue') },

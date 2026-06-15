@@ -131,12 +131,7 @@ function getAgentName(id) {
  return agents.value.find(a => a.id === id)?.name || id;
 }
 function getAgentType(type) {
- const types = {
- 'MODEL': '模型模式',
- 'SKILL': 'Skill 模式',
- 'ENDPOINT': 'Endpoint 模式'
- };
- return types[type] || type;
+  return type || '自定义';
 }
 </script>
 

@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
-  LayoutDashboard, Activity, Bot, Server, Cpu, Link, KeyRound, Users,
+  LayoutDashboard, Bot, Server, Cpu, Link, KeyRound, Users,
   Receipt, MessageSquare, Plug, Settings, LogOut, ChevronRight, Shield, Database
 } from 'lucide-vue-next'
 
@@ -13,7 +13,6 @@ const authStore = useAuthStore()
 
 const navItems = [
   { path: '/admin/dashboard', name: '仪表盘', icon: LayoutDashboard },
-  { path: '/admin/monitor', name: '智能体监控', icon: Activity },
   { path: '/admin/agents', name: '智能体管理', icon: Bot },
   { path: '/admin/skills', name: 'Skill 管理', icon: Server },
   { path: '/admin/knowledge', name: '知识库管理', icon: Database },
