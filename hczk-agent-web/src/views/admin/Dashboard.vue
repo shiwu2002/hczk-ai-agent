@@ -597,8 +597,7 @@ const userMap = computed(() => {
                 </span>
               </div>
               <div class="flex items-center justify-between text-xs text-slate-500">
-                <span>输入 ¥{{ model.inputPrice || 0 }}/1K</span>
-                <span>输出 ¥{{ model.outputPrice || 0 }}/1K</span>
+                <span>{{ model.modelId }}</span>
               </div>
             </div>
           </div>

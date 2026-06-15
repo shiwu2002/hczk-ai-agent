@@ -24,10 +24,13 @@ public class BillingMessage {
     /** 用户ID */
     private Long userId;
 
-    /** API Key ID（可为null） */
+    /** API Key ID */
     private Long apiKeyId;
 
-    /** 计费金额（正数为扣费，零为仅记录用量） */
+    /** 调用的模型ID */
+    private Long modelId;
+
+    /** 计费金额 */
     private BigDecimal amount;
 
     /** 输入Token数 */
@@ -38,9 +41,6 @@ public class BillingMessage {
 
     /** 计费详情描述 */
     private String detail;
-
-    /** 模型ID */
-    private Long modelId;
 
     /** 模型名称 */
     private String modelName;

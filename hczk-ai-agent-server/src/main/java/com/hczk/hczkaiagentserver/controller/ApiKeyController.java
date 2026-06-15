@@ -10,6 +10,7 @@ import com.hczk.hczkaiagentserver.service.ApiKeyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @RestController
@@ -31,9 +32,32 @@ public class ApiKeyController {
         return Result.success(apiKeyService.getApiKeysByUserId(userId));
     }
 
+    /**
+     * 创建 API Key
+     * @param userId    用户ID
+     * @param name      Key名称
+     * @param unitPrice 统一Token单价（元/千Tokens）
+     * @param modelIds  绑定的大模型ID列表
+     */
     @PostMapping
-    public Result<ApiKey> createApiKey(@RequestParam Long userId, @RequestParam String name) {
-        return Result.success(apiKeyService.createApiKey(userId, name));
+    public Result<ApiKey> createApiKey(
+            @RequestParam Long userId,
+            @RequestParam String name,
+            @RequestParam(required = false, defaultValue = "0") BigDecimal unitPrice,
+            @RequestParam(required = false) List<Long> modelIds) {
+        return Result.success(apiKeyService.createApiKey(userId, name, unitPrice, modelIds));
+    }
+
+    /**
+     * 更新 API Key（名称、单价、绑定模型）
+     */
+    @PutMapping("/{id}")
+    public Result<ApiKey> updateApiKey(
+            @PathVariable Long id,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) BigDecimal unitPrice,
+            @RequestParam(required = false) List<Long> modelIds) {
+        return Result.success(apiKeyService.updateApiKey(id, name, unitPrice, modelIds));
     }
 
     @DeleteMapping("/{id}")

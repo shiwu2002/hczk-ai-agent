@@ -53,6 +53,7 @@ public class BillingConsumer {
             billingService.deductBalanceAsync(
                     message.getUserId(),
                     message.getApiKeyId(),
+                    message.getModelId(),
                     message.getAmount(),
                     message.getInputTokens(),
                     message.getOutputTokens(),

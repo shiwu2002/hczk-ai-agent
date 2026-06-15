@@ -19,6 +19,10 @@ public class BillingRecord {
     @TableField("api_key_id")
     private Long apiKeyId;
 
+    /** 调用的模型ID */
+    @TableField("model_id")
+    private Long modelId;
+
     private BillingType type;
 
     private BigDecimal amount;

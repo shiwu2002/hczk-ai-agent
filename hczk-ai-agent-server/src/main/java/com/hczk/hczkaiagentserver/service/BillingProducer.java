@@ -29,18 +29,19 @@ public class BillingProducer {
      *
      * @param userId       用户ID
      * @param apiKeyId     API Key ID
+     * @param modelId      调用的模型ID
      * @param amount       扣费金额
      * @param inputTokens  输入Token数
      * @param outputTokens 输出Token数
      * @param detail       详情描述
-     * @throws RuntimeException 发送失败时抛出异常
      */
-    public void sendBillingMessage(Long userId, Long apiKeyId, BigDecimal amount,
+    public void sendBillingMessage(Long userId, Long apiKeyId, Long modelId, BigDecimal amount,
                                    Long inputTokens, Long outputTokens, String detail) {
         try {
             BillingMessage message = BillingMessage.builder()
                     .userId(userId)
                     .apiKeyId(apiKeyId)
+                    .modelId(modelId)
                     .amount(amount)
                     .inputTokens(inputTokens)
                     .outputTokens(outputTokens)

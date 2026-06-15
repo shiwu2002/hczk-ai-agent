@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Service
@@ -29,12 +30,34 @@ public class ApiKeyServiceImpl implements ApiKeyService {
 
     @Override
     @Transactional
-    public ApiKey createApiKey(Long userId, String name) {
+    public ApiKey createApiKey(Long userId, String name, BigDecimal unitPrice, List<Long> modelIds) {
         ApiKey key = new ApiKey();
         key.setName(name);
         key.setApiKey(ApiKeyGenerator.generateKey());
         key.setUserId(userId);
+        key.setUnitPrice(unitPrice != null ? unitPrice : BigDecimal.ZERO);
+        key.setModelIds(modelIds);
         apiKeyMapper.insert(key);
+        return key;
+    }
+
+    @Override
+    @Transactional
+    public ApiKey updateApiKey(Long id, String name, BigDecimal unitPrice, List<Long> modelIds) {
+        ApiKey key = apiKeyMapper.selectById(id);
+        if (key == null) {
+            throw new RuntimeException("API Key 不存在");
+        }
+        if (name != null) {
+            key.setName(name);
+        }
+        if (unitPrice != null) {
+            key.setUnitPrice(unitPrice);
+        }
+        if (modelIds != null) {
+            key.setModelIds(modelIds);
+        }
+        apiKeyMapper.updateById(key);
         return key;
     }
 

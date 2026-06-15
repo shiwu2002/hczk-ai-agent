@@ -114,13 +114,14 @@ public class BillingServiceImpl implements BillingService {
 
     /**
      * 同步扣减用户余额
-     * 
-     * 在聊天完成后同步扣减用户余额，适用于需要即时反馈余额的场景。
+     *
+     * 计费流程：API Key → 查询用户 → 余额检查 → 扣减余额 → 记录账单 → 更新API Key统计
      * 优先从Redis缓存读取余额进行预检查，然后更新数据库。
-     * 
+     *
      * @param userId       用户ID
-     * @param apiKeyId     API Key ID（可为null）
-     * @param amount       扣减金额
+     * @param apiKeyId     API Key ID
+     * @param modelId      调用的模型ID
+     * @param amount       扣减金额（由API Key的unitPrice计算得出）
      * @param inputTokens  输入Token数
      * @param outputTokens 输出Token数
      * @param detail       扣费详情描述
@@ -129,7 +130,7 @@ public class BillingServiceImpl implements BillingService {
      */
     @Override
     @Transactional
-    public boolean deductBalance(Long userId, Long apiKeyId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail) {
+    public boolean deductBalance(Long userId, Long apiKeyId, Long modelId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail) {
         BigDecimal cachedBalance = redisCacheService.getUserBalance(userId);
         if (cachedBalance.compareTo(amount) < 0) {
             log.warn("缓存余额不足: userId={}, balance={}, required={}", userId, cachedBalance, amount);
@@ -155,6 +156,7 @@ public class BillingServiceImpl implements BillingService {
         BillingRecord record = new BillingRecord();
         record.setUserId(userId);
         record.setApiKeyId(apiKeyId);
+        record.setModelId(modelId);
         record.setType(BillingType.TOKEN_USAGE);
         record.setAmount(amount.negate());
         record.setBalanceAfter(user.getBalance());
@@ -170,6 +172,7 @@ public class BillingServiceImpl implements BillingService {
                     apiKey.setTotalInputTokens(apiKey.getTotalInputTokens() + inputTokens);
                     apiKey.setTotalOutputTokens(apiKey.getTotalOutputTokens() + outputTokens);
                     apiKey.setTotalCost(apiKey.getTotalCost().add(amount));
+                    apiKey.setTotalCalls(apiKey.getTotalCalls() + 1);
                     apiKeyMapper.updateById(apiKey);
                 }
             } catch (Exception e) {
@@ -182,11 +185,12 @@ public class BillingServiceImpl implements BillingService {
 
     /**
      * 异步扣减余额
-     * 
+     *
      * 由RabbitMQ消费者调用，实现异步计费，不阻塞主业务流程。
-     * 
+     *
      * @param userId       用户ID
-     * @param apiKeyId     API Key ID（可为null）
+     * @param apiKeyId     API Key ID
+     * @param modelId      调用的模型ID
      * @param amount       扣减金额
      * @param inputTokens  输入Token数
      * @param outputTokens 输出Token数
@@ -194,7 +198,7 @@ public class BillingServiceImpl implements BillingService {
      */
     @Override
     @Transactional
-    public void deductBalanceAsync(Long userId, Long apiKeyId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail) {
+    public void deductBalanceAsync(Long userId, Long apiKeyId, Long modelId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail) {
         User user = userMapper.selectById(userId);
         if (user == null) {
             log.error("异步扣费失败：用户不存在: userId={}", userId);
@@ -215,6 +219,7 @@ public class BillingServiceImpl implements BillingService {
         BillingRecord record = new BillingRecord();
         record.setUserId(userId);
         record.setApiKeyId(apiKeyId);
+        record.setModelId(modelId);
         record.setType(BillingType.TOKEN_USAGE);
         record.setAmount(amount.negate());
         record.setBalanceAfter(user.getBalance());
@@ -230,6 +235,7 @@ public class BillingServiceImpl implements BillingService {
                     apiKey.setTotalInputTokens(apiKey.getTotalInputTokens() + inputTokens);
                     apiKey.setTotalOutputTokens(apiKey.getTotalOutputTokens() + outputTokens);
                     apiKey.setTotalCost(apiKey.getTotalCost().add(amount));
+                    apiKey.setTotalCalls(apiKey.getTotalCalls() + 1);
                     apiKeyMapper.updateById(apiKey);
                 }
             } catch (Exception e) {

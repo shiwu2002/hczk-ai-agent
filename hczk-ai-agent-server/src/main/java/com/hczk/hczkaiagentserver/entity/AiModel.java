@@ -5,7 +5,6 @@ import com.hczk.hczkaiagentserver.enums.ModelProviderType;
 import com.hczk.hczkaiagentserver.enums.ModelStatus;
 import lombok.Data;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @TableName("ai_models")
@@ -31,12 +30,6 @@ public class AiModel {
 
     @TableField("api_key")
     private String apiKey;
-
-    @TableField("input_price")
-    private BigDecimal inputPrice;
-
-    @TableField("output_price")
-    private BigDecimal outputPrice;
 
     @TableField("max_tokens")
     private Integer maxTokens;

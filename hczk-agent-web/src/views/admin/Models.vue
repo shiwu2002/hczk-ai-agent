@@ -4,7 +4,7 @@ import { ref, onMounted } from 'vue'
 import { useApiStore, API_BASE } from '@/stores/api'
 import { useAuthStore } from '@/stores/auth'
 import {
-  Plus, Power, Settings2, Trash2, Cpu, Gauge, DollarSign, MessageSquare
+  Plus, Power, Settings2, Trash2, Cpu, Gauge, MessageSquare
 } from 'lucide-vue-next'
 
 const api = useApiStore()
@@ -27,8 +27,6 @@ const newModel = ref({
   modelId: '',
   apiBase: '',
   apiKey: '',
-  inputPrice: 0,
-  outputPrice: 0,
   maxTokens: 4096,
   thinking: false
 })
@@ -48,10 +46,7 @@ async function loadData() {
   loading.value = true
   const res = await api.get('/models')
   if (res.code === 200) {
-    models.value = (res.data || []).map(m => ({
-      ...m,
-      pricing: { input: m.inputPrice || 0, output: m.outputPrice || 0 }
-    }))
+    models.value = res.data || []
   }
   loading.value = false
 }
@@ -100,14 +95,6 @@ async function deleteModel(model) {
         alert('请输入模型ID')
         return
       }
-      if (!newModel.value.inputPrice || newModel.value.inputPrice <= 0) {
-        alert('请输入有效的输入价格（必须大于0）')
-        return
-      }
-      if (!newModel.value.outputPrice || newModel.value.outputPrice <= 0) {
-        alert('请输入有效的输出价格（必须大于0）')
-        return
-      }
       
       const body = editingModel.value
         ? { ...editingModel.value, ...newModel.value }
@@ -148,8 +135,6 @@ function editModel(model) {
     modelId: model.modelId,
     apiBase: model.apiBase || '',
     apiKey: model.apiKey || '',
-    inputPrice: model.inputPrice || 0,
-    outputPrice: model.outputPrice || 0,
     maxTokens: model.maxTokens || 4096,
     thinking: model.thinking || false
   }
@@ -160,7 +145,7 @@ function editModel(model) {
 function resetForm() {
   newModel.value = {
     name: '', provider: '', providerType: 'OPENAI_COMPATIBLE', modelId: '', apiBase: '', apiKey: '',
-    inputPrice: 0, outputPrice: 0, maxTokens: 4096, thinking: false
+    maxTokens: 4096, thinking: false
   }
 }
 
@@ -310,14 +295,6 @@ async function runTest() {
             <span class="text-sm text-slate-400">API 地址</span>
             <span class="text-sm text-slate-300 font-mono truncate max-w-[200px]">{{ model.apiBase || '默认' }}</span>
           </div>
-          <div class="flex items-center justify-between py-2 border-b border-white/5">
-            <span class="text-sm text-slate-400">输入价格</span>
-            <span class="text-sm text-white">{{ model.pricing?.input || 0 }} 元 / 1K tokens</span>
-          </div>
-          <div class="flex items-center justify-between py-2 border-b border-white/5">
-            <span class="text-sm text-slate-400">输出价格</span>
-            <span class="text-sm text-white">{{ model.pricing?.output || 0 }} 元 / 1K tokens</span>
-          </div>
           <div class="flex items-center justify-between py-2">
             <span class="text-sm text-slate-400">最大上下文</span>
             <span class="text-sm text-white">{{ ((model.maxTokens || 0) / 1024).toFixed(0) }}K tokens</span>
@@ -378,20 +355,10 @@ async function runTest() {
             <label class="block text-sm text-slate-300 mb-2">API Key</label>
             <input v-model="newModel.apiKey" type="password" class="input-field" placeholder="sk-..." />
           </div>
-          <!-- 计费与上下文参数 -->
-          <div class="grid grid-cols-3 gap-4">
-            <div>
-              <label class="block text-sm text-slate-300 mb-2">输入价格 (元/1K)</label>
-              <input v-model.number="newModel.inputPrice" type="number" step="0.001" class="input-field" />
-            </div>
-            <div>
-              <label class="block text-sm text-slate-300 mb-2">输出价格 (元/1K)</label>
-              <input v-model.number="newModel.outputPrice" type="number" step="0.001" class="input-field" />
-            </div>
-            <div>
-              <label class="block text-sm text-slate-300 mb-2">最大 Tokens</label>
-              <input v-model.number="newModel.maxTokens" type="number" class="input-field" />
-            </div>
+          <!-- 上下文参数 -->
+          <div>
+            <label class="block text-sm text-slate-300 mb-2">最大 Tokens</label>
+            <input v-model.number="newModel.maxTokens" type="number" class="input-field" />
           </div>
           <!-- 深度思考开关 -->
           <div class="flex items-center gap-2">

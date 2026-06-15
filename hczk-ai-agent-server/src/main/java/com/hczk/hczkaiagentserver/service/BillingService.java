@@ -45,33 +45,35 @@ public interface BillingService {
 
     /**
      * 同步扣减用户余额
-     * 
+     *
      * 在聊天完成后同步扣减用户余额，适用于需要即时反馈余额的场景。
      * 优先从 Redis 缓存读取余额进行预检查，然后更新数据库。
-     * 
+     *
      * @param userId       用户ID
-     * @param apiKeyId     API Key ID（可为null）
+     * @param apiKeyId     API Key ID
+     * @param modelId      调用的模型ID
      * @param amount       扣减金额
      * @param inputTokens  输入Token数
      * @param outputTokens 输出Token数
      * @param detail       扣费详情描述
      * @return 扣费是否成功（余额不足返回false）
      */
-    boolean deductBalance(Long userId, Long apiKeyId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail);
+    boolean deductBalance(Long userId, Long apiKeyId, Long modelId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail);
 
     /**
      * 异步扣减余额
-     * 
+     *
      * 由 RabbitMQ 消费者调用，实现异步计费，不阻塞主业务流程。
-     * 
+     *
      * @param userId       用户ID
-     * @param apiKeyId     API Key ID（可为null）
+     * @param apiKeyId     API Key ID
+     * @param modelId      调用的模型ID
      * @param amount       扣减金额
      * @param inputTokens  输入Token数
      * @param outputTokens 输出Token数
      * @param detail       扣费详情描述
      */
-    void deductBalanceAsync(Long userId, Long apiKeyId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail);
+    void deductBalanceAsync(Long userId, Long apiKeyId, Long modelId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail);
 
     /**
      * 获取用户余额（从数据库）
