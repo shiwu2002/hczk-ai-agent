@@ -159,13 +159,13 @@ async function doRecharge() {
               <td class="py-4 text-sm text-slate-300">{{ user.phoneNumber || '-' }}</td>
               <td class="py-4 text-sm text-slate-300">{{ user.companyName || '-' }}</td>
               <td class="py-4">
-                <span :class="['px-2 py-0.5 text-xs rounded-full border', user.role === 'ADMIN' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20']">
-                  {{ user.role === 'ADMIN' ? '管理员' : '用户' }}
+                <span :class="['px-2 py-0.5 text-xs rounded-full border', user.role === 0 ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20']">
+                  {{ user.role === 0 ? '管理员' : '用户' }}
                 </span>
               </td>
               <td class="py-4">
-                <span :class="['px-2 py-1 text-xs rounded-full border', user.status === 'ACTIVE' || user.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20']">
-                  {{ user.status === 'ACTIVE' || user.status === 'active' ? '正常' : '已冻结' }}
+                <span :class="['px-2 py-1 text-xs rounded-full border', user.status === 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20']">
+                  {{ user.status === 0 ? '正常' : '已冻结' }}
                 </span>
               </td>
               <td class="py-4">
@@ -316,8 +316,8 @@ async function doRecharge() {
                   <td class="py-3 text-sm text-amber-400">{{ (key.totalOutputTokens || 0).toLocaleString() }}</td>
                   <td class="py-3 text-sm text-emerald-400">¥{{ key.totalCost ? Number(key.totalCost).toFixed(4) : '0.0000' }}</td>
                   <td class="py-3">
-                    <span :class="['px-2 py-0.5 text-xs rounded-full border', key.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20']">
-                      {{ key.status === 'active' ? '可用' : '禁用' }}
+                    <span :class="['px-2 py-0.5 text-xs rounded-full border', key.status === 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20']">
+                      {{ key.status === 0 ? '可用' : '禁用' }}
                     </span>
                   </td>
                   <td class="py-3 text-sm text-slate-400">{{ key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : '从未' }}</td>

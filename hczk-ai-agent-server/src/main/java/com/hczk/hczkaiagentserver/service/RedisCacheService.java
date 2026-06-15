@@ -28,8 +28,11 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class RedisCacheService {
 
+    /** Redis操作模板 */
     private final RedisTemplate<String, Object> redisTemplate;
+    /** 用户数据访问 */
     private final UserMapper userMapper;
+    /** API Key数据访问 */
     private final ApiKeyMapper apiKeyMapper;
 
     /** 用户余额缓存前缀 */
@@ -52,14 +55,17 @@ public class RedisCacheService {
     public BigDecimal getUserBalance(Long userId) {
         String key = USER_BALANCE_PREFIX + userId;
         try {
+            // 优先从Redis缓存读取
             Object cached = redisTemplate.opsForValue().get(key);
             if (cached != null) {
                 return new BigDecimal(cached.toString());
             }
         } catch (Exception e) {
+            // Redis故障降级到数据库查询
             log.warn("Redis 获取用户余额失败: userId={}, error={}", userId, e.getMessage());
         }
 
+        // 缓存未命中或Redis不可用，查询数据库并回填缓存
         User user = userMapper.selectById(userId);
         if (user != null) {
             cacheUserBalance(userId, user.getBalance());
@@ -106,14 +112,17 @@ public class RedisCacheService {
     public User getUser(Long userId) {
         String key = USER_PREFIX + userId;
         try {
+            // 优先从Redis缓存读取
             Object cached = redisTemplate.opsForValue().get(key);
             if (cached instanceof User) {
                 return (User) cached;
             }
         } catch (Exception e) {
+            // Redis故障降级到数据库查询
             log.warn("Redis 获取用户失败: userId={}, error={}", userId, e.getMessage());
         }
 
+        // 缓存未命中或Redis不可用，查询数据库并回填缓存
         User user = userMapper.selectById(userId);
         if (user != null) {
             cacheUser(user);
@@ -159,18 +168,21 @@ public class RedisCacheService {
     public ApiKey getApiKey(String apiKey) {
         String key = API_KEY_PREFIX + apiKey;
         try {
+            // 优先从Redis缓存读取
             Object cached = redisTemplate.opsForValue().get(key);
             if (cached instanceof ApiKey) {
                 return (ApiKey) cached;
             }
         } catch (Exception e) {
+            // Redis故障降级到数据库查询
             log.warn("Redis 获取 API Key 失败: key={}, error={}", apiKey.substring(0, Math.min(10, apiKey.length())) + "...", e.getMessage());
         }
 
+        // 缓存未命中或Redis不可用，查询数据库并回填缓存（仅缓存status=0可用的Key）
         ApiKey apiKeyEntity = apiKeyMapper.selectOne(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ApiKey>()
                         .eq(ApiKey::getApiKey, apiKey));
-        if (apiKeyEntity != null && "active".equals(apiKeyEntity.getStatus())) {
+        if (apiKeyEntity != null && apiKeyEntity.getStatus() == 0) {
             cacheApiKey(apiKeyEntity);
         }
         return apiKeyEntity;

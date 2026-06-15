@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 用户服务实现类
@@ -82,10 +83,15 @@ public class UserServiceImpl implements UserService {
         }
 
         User user = new User();
+        user.setUserId("U" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase());
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setEmail(request.getEmail());
         user.setRole(UserRole.USER);
+        // 确保新建用户默认正常状态
+        if (user.getStatus() == null) {
+            user.setStatus(0);
+        }
         userMapper.insert(user);
         return user;
     }
@@ -152,12 +158,14 @@ public class UserServiceImpl implements UserService {
     private UserDTO convertToDTO(User user) {
         UserDTO dto = new UserDTO();
         dto.setId(user.getId());
+        dto.setUserId(user.getUserId());
         dto.setUsername(user.getUsername());
         dto.setEmail(user.getEmail());
         dto.setRole(user.getRole().name());
         dto.setBalance(user.getBalance());
         dto.setPhoneNumber(user.getPhoneNumber());
         dto.setCompanyName(user.getCompanyName());
+        dto.setStatus(user.getStatus());
         return dto;
     }
 

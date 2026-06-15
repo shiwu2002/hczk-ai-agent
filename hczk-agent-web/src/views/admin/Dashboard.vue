@@ -586,14 +586,14 @@ const userMap = computed(() => {
             <div v-for="model in models" :key="model.id" class="p-3 rounded-lg bg-white/5">
               <div class="flex items-center justify-between mb-2">
                 <div class="flex items-center gap-2.5">
-                  <span class="status-dot" :class="model.status === 'ACTIVE' ? 'online' : 'offline'"></span>
+                  <span class="status-dot" :class="model.status === 0 ? 'online' : 'offline'"></span>
                   <div>
                     <p class="text-sm font-medium text-white">{{ model.name }}</p>
                     <p class="text-xs text-slate-400">{{ model.provider }}</p>
                   </div>
                 </div>
-                <span :class="['px-2 py-0.5 text-xs rounded-full', model.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']">
-                  {{ model.status === 'ACTIVE' ? '在线' : '离线' }}
+                <span :class="['px-2 py-0.5 text-xs rounded-full', model.status === 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']">
+                  {{ model.status === 0 ? '在线' : '离线' }}
                 </span>
               </div>
               <div class="flex items-center justify-between text-xs text-slate-500">

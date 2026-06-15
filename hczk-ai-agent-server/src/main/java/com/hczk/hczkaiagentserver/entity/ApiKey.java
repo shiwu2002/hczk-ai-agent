@@ -42,7 +42,8 @@ public class ApiKey {
     @TableField("total_cost")
     private BigDecimal totalCost = BigDecimal.ZERO;
 
-    private String status = "active";
+    /** 状态：0可用 / 1禁用 */
+    private Integer status = 0;
 
     @TableField("last_used_at")
     private LocalDateTime lastUsedAt;

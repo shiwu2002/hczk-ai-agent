@@ -107,8 +107,8 @@ async function createAgent() {
             <div>
               <div class="flex items-center gap-3">
                 <h3 class="text-lg font-semibold text-white">{{ agent.name }}</h3>
-                <span :class="['px-2 py-0.5 text-xs rounded-full border', agent.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20']">
-                  {{ agent.status === 'ACTIVE' ? '运行中' : '已停用' }}
+                <span :class="['px-2 py-0.5 text-xs rounded-full border', agent.status === 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20']">
+                  {{ agent.status === 0 ? '运行中' : '已停用' }}
                 </span>
               </div>
               <p class="text-sm text-slate-400 mt-1">{{ agent.description || '无描述' }}</p>
@@ -120,7 +120,7 @@ async function createAgent() {
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <button @click="toggleStatus(agent)" :class="['p-2 rounded-lg transition-colors', agent.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']">
+            <button @click="toggleStatus(agent)" :class="['p-2 rounded-lg transition-colors', agent.status === 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']">
               <Power class="w-4 h-4" />
             </button>
             <button class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10">

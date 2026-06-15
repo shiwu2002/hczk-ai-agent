@@ -40,7 +40,7 @@ async function loadData() {
   ])
   if (userRes.code === 200) users.value = userRes.data || []
   if (apiKeyRes.code === 200) apiKeys.value = apiKeyRes.data || []
-  if (modelRes.code === 200) models.value = (modelRes.data || []).filter(m => m.status === 'ACTIVE')
+  if (modelRes.code === 200) models.value = (modelRes.data || []).filter(m => m.status === 0)
   loading.value = false
 }
 
@@ -194,8 +194,8 @@ const filteredApiKeys = computed(() => {
             <td class="px-6 py-4 text-amber-400">{{ key.unitPrice || 0 }}</td>
             <td class="px-6 py-4 text-slate-300">{{ key.totalCalls || 0 }}</td>
             <td class="px-6 py-4">
-              <span :class="['px-2 py-0.5 text-xs rounded-full', key.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']">
-                {{ key.status === 'active' ? '启用' : '禁用' }}
+              <span :class="['px-2 py-0.5 text-xs rounded-full', key.status === 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']">
+                {{ key.status === 0 ? '启用' : '禁用' }}
               </span>
             </td>
             <td class="px-6 py-4 text-slate-500 text-sm">{{ key.createdAt }}</td>

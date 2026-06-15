@@ -90,7 +90,7 @@ public class KnowledgeController {
     @GetMapping("/owners/agents")
     public Result<List<Agent>> listAgentsForOwner() {
         return Result.success(agentMapper.selectList(
-                new LambdaQueryWrapper<Agent>().eq(Agent::getStatus, "ACTIVE")));
+                new LambdaQueryWrapper<Agent>().eq(Agent::getStatus, 0)));
     }
 
     /**
@@ -99,7 +99,7 @@ public class KnowledgeController {
     @GetMapping("/owners/users")
     public Result<List<User>> listUsersForOwner() {
         return Result.success(userMapper.selectList(
-                new LambdaQueryWrapper<User>().eq(User::getStatus, "active")));
+                new LambdaQueryWrapper<User>().eq(User::getStatus, 0)));
     }
 
     // ==================== 知识库操作 ====================

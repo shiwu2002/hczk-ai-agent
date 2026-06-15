@@ -98,7 +98,7 @@ function getRuntimeBadgeText() {
 function calculateStats() {
  stats.value = {
  totalSkills: skills.value.length,
- activeSkills: skills.value.filter(s => s.status === 'active').length,
+ activeSkills: skills.value.filter(s => s.status === 0).length,
  totalBindings: bindings.value.length,
  activeBindings: bindings.value.filter(b => b.enabled).length,
  skillModeCount: bindings.value.filter(b => b.skillId).length,
@@ -140,10 +140,10 @@ onUnmounted(() => {
  stopAutoRefresh();
 });
 function getSkillStatusIcon(status) {
- return status === 'active' ? CheckCircle : XCircle;
+  return status === 0 ? CheckCircle : XCircle;
 }
 function getSkillStatusColor(status) {
- return status === 'active' ? 'text-emerald-400' : 'text-red-400';
+  return status === 0 ? 'text-emerald-400' : 'text-red-400';
 }
 function getBindingMode(binding) {
  return binding.skillId ? 'Skill 模式' : 'Endpoint 模式';
@@ -323,7 +323,7 @@ function getBindingModeColor(binding) {
           <div v-else class="space-y-3">
             <div v-for="skill in skills" :key="skill.id" class="flex items-center justify-between p-3 rounded-lg bg-white/5">
               <div class="flex items-center gap-3">
-                <div :class="['w-8 h-8 rounded-lg flex items-center justify-center', skill.status === 'active' ? 'bg-emerald-500/20' : 'bg-red-500/20']">
+                <div :class="['w-8 h-8 rounded-lg flex items-center justify-center', skill.status === 0 ? 'bg-emerald-500/20' : 'bg-red-500/20']">
                   <component :is="getSkillStatusIcon(skill.status)" :class="['w-4 h-4', getSkillStatusColor(skill.status)]" />
                 </div>
                 <div>
@@ -331,8 +331,8 @@ function getBindingModeColor(binding) {
                   <p class="text-sm text-slate-500">{{ skill.category }} · v{{ skill.version }}</p>
                 </div>
               </div>
-              <span :class="['px-2 py-0.5 text-xs rounded-full', skill.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400']">
-                {{ skill.status === 'active' ? '活跃' : '停用' }}
+              <span :class="['px-2 py-0.5 text-xs rounded-full', skill.status === 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400']">
+                {{ skill.status === 0 ? '活跃' : '停用' }}
               </span>
             </div>
           </div>

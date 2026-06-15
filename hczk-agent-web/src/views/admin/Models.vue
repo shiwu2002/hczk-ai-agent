@@ -265,7 +265,7 @@ async function runTest() {
           <div class="flex items-center gap-2">
             <button
               @click="toggleStatus(model)"
-              :class="['p-2 rounded-lg transition-colors', model.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']"
+              :class="['p-2 rounded-lg transition-colors', model.status === 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']"
             >
               <Power class="w-4 h-4" />
             </button>
@@ -307,8 +307,8 @@ async function runTest() {
             <Gauge class="w-4 h-4 text-slate-400" />
             <span class="text-sm text-slate-400">{{ model.qps || 0 }} QPS</span>
           </div>
-          <span :class="['px-2 py-1 text-xs rounded-full border', model.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20']">
-            {{ model.status === 'ACTIVE' ? '运行中' : '已停用' }}
+          <span :class="['px-2 py-1 text-xs rounded-full border', model.status === 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20']">
+            {{ model.status === 0 ? '运行中' : '已停用' }}
           </span>
         </div>
       </div>

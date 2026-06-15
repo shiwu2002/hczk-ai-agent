@@ -16,7 +16,7 @@ const newSkill = ref({
  capabilities: '',
  workflow: '',
  config: '',
- status: 'active'
+ status: 0
 });
 onMounted(loadData);
 async function loadData() {
@@ -151,7 +151,7 @@ function resetForm() {
  capabilities: '',
  workflow: '',
  config: '',
- status: 'active'
+ status: 0
  };
 }
 const categories = ['customer_service', 'marketing', 'sales', 'support', 'finance', 'other'];
@@ -199,8 +199,8 @@ function getCategoryLabel(category) {
             <div>
               <div class="flex items-center gap-3">
                 <h3 class="text-lg font-semibold text-white">{{ skill.name }}</h3>
-                <span :class="['px-2 py-0.5 text-xs rounded-full', skill.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']">
-                  {{ skill.status === 'active' ? '活跃' : '停用' }}
+                <span :class="['px-2 py-0.5 text-xs rounded-full', skill.status === 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']">
+                  {{ skill.status === 0 ? '活跃' : '停用' }}
                 </span>
               </div>
               <div class="flex items-center gap-4 mt-1">
@@ -219,7 +219,7 @@ function getCategoryLabel(category) {
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <button @click="toggleStatus(skill)" :class="['p-2 rounded-lg transition-colors', skill.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']">
+            <button @click="toggleStatus(skill)" :class="['p-2 rounded-lg transition-colors', skill.status === 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']">
               <Power class="w-4 h-4" />
             </button>
             <button @click="editSkill(skill)" class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10">

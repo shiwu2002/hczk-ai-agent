@@ -26,19 +26,22 @@ DROP TABLE IF EXISTS users;
 CREATE TABLE users (
     id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
     PRIMARY KEY,
+    user_id             VARCHAR(32)    NOT NULL UNIQUE COMMENT '用户唯一标识（随机生成）',
     username            VARCHAR(50)    NOT NULL COMMENT '登录用户名',
     password            VARCHAR(255)   NOT NULL COMMENT 'BCrypt加密密码',
     email               VARCHAR(100)   NOT NULL COMMENT '绑定邮箱',
     phone_number        VARCHAR(20)         COMMENT '联系手机号',
     company_name        VARCHAR(100)        COMMENT '所属公司名称',
-    role                VARCHAR(20)    NOT NULL DEFAULT 'USER' COMMENT '角色：ADMIN管理员 / USER普通用户',
+    role                TINYINT        NOT NULL DEFAULT 1 COMMENT '角色：0管理员 / 1普通用户',
     balance             DECIMAL(19,4)  NOT NULL DEFAULT 0.0000 COMMENT '账户余额(元)',
     total_usage_tokens  BIGINT         NOT NULL DEFAULT 0 COMMENT '累计消耗Token总量',
-    status              VARCHAR(20)    NOT NULL DEFAULT 'active' COMMENT '账号状态：active正常 / inactive禁用',
+    status              TINYINT        NOT NULL DEFAULT 0 COMMENT '账号状态：0正常 / 1禁用',
+    deleted             TINYINT        NOT NULL DEFAULT 0 COMMENT '逻辑删除：0未删除 / 1已删除',
     created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
     -- 唯一索引
+    UNIQUE KEY uk_user_id (user_id),
     UNIQUE KEY uk_username (username),
     UNIQUE KEY uk_email (email),
     -- 业务查询索引
@@ -59,11 +62,9 @@ CREATE TABLE ai_models (
     provider            VARCHAR(100)   NOT NULL COMMENT '模型厂商/服务商',
     provider_type       VARCHAR(30)    NOT NULL DEFAULT 'OPENAI_COMPATIBLE' COMMENT '接口类型：OPENAI_COMPATIBLE / ANTHROPIC / MODELSCOPE',
     model_id            VARCHAR(100)   NOT NULL COMMENT '接口调用标识ID',
-    status              VARCHAR(20)    NOT NULL DEFAULT 'ACTIVE' COMMENT '启用状态：ACTIVE启用 / INACTIVE停用',
+    status              TINYINT        NOT NULL DEFAULT 0 COMMENT '启用状态：0启用 / 1停用',
     api_base            VARCHAR(255)        COMMENT 'API接口根地址',
     api_key             VARCHAR(512)        COMMENT '服务商密钥',
-    input_price         DECIMAL(19,6)       COMMENT '输入计价：元/千Tokens',
-    output_price        DECIMAL(19,6)       COMMENT '输出计价：元/千Tokens',
     max_tokens          INT                 COMMENT '模型最大上下文长度',
     thinking            TINYINT(1)     NOT NULL DEFAULT 0 COMMENT '是否启用深度思考',
     created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -86,7 +87,7 @@ CREATE TABLE agents (
     description         TEXT                COMMENT '智能体功能描述、提示词配置',
     model_id            BIGINT         NOT NULL COMMENT '关联模型ID(ai_models.id)',
     user_id             BIGINT         NOT NULL COMMENT '归属用户ID(users.id)',
-    status              VARCHAR(20)    NOT NULL DEFAULT 'ACTIVE' COMMENT '状态：ACTIVE启用 / INACTIVE停用',
+    status              TINYINT        NOT NULL DEFAULT 0 COMMENT '状态：0启用 / 1停用',
     agent_type          VARCHAR(50)         COMMENT '智能体业务类型',
     total_calls         BIGINT         NOT NULL DEFAULT 0 COMMENT '累计调用次数',
     total_tokens        BIGINT         NOT NULL DEFAULT 0 COMMENT '累计消耗Token',
@@ -115,16 +116,18 @@ CREATE TABLE api_keys (
     name                VARCHAR(100)   NOT NULL COMMENT '密钥备注名称',
     api_key             VARCHAR(512)   NOT NULL COMMENT '随机生成密钥串',
     user_id             BIGINT         NOT NULL COMMENT '归属用户ID(users.id)',
+    model_ids           JSON                COMMENT '绑定的大模型ID列表',
+    unit_price          DECIMAL(19,6)  NOT NULL DEFAULT 0.000000 COMMENT '统一Token单价（元/千Tokens）',
     total_calls         BIGINT         NOT NULL DEFAULT 0 COMMENT '累计调用次数',
     total_input_tokens  BIGINT         NOT NULL DEFAULT 0 COMMENT '累计输入Token数量',
     total_output_tokens BIGINT         NOT NULL DEFAULT 0 COMMENT '累计输出Token数量',
     total_cost          DECIMAL(19,6)  NOT NULL DEFAULT 0.000000 COMMENT '累计消耗费用(元)',
-    status              VARCHAR(20)    NOT NULL DEFAULT 'active' COMMENT '状态：active可用 / inactive禁用',
+    status              TINYINT        NOT NULL DEFAULT 0 COMMENT '状态：0可用 / 1禁用',
     last_used_at        DATETIME            COMMENT '最后调用时间',
     created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
 
     UNIQUE KEY uk_api_key (api_key),
-    KEY idx_user_id (user_id),
+    UNIQUE KEY uk_user_id (user_id),
     KEY idx_status (status),
     CONSTRAINT fk_apikey_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户对外开放API密钥表';
@@ -163,6 +166,7 @@ CREATE TABLE billing_records (
     PRIMARY KEY,
     user_id             BIGINT         NOT NULL COMMENT '操作用户ID(users.id)',
     api_key_id          BIGINT              COMMENT '关联API Key ID(api_keys.id)，API Key调用时记录',
+    model_id            BIGINT              COMMENT '调用的模型ID',
     type                VARCHAR(20)    NOT NULL COMMENT '账单类型：TOKEN_USAGE消耗扣费 / RECHARGE充值入账',
     amount              DECIMAL(19,4)       COMMENT '变动金额(正充值/负扣费)',
     balance_after       DECIMAL(19,4)       COMMENT '操作后账户余额',
@@ -457,7 +461,7 @@ CREATE TABLE knowledge_bases (
     agent_id            VARCHAR(64)    NOT NULL COMMENT 'Milvus集合命名用的agentId字符串',
     collection_name     VARCHAR(128)   NOT NULL DEFAULT 'default' COMMENT 'Milvus子集合名',
     row_count           BIGINT         NOT NULL DEFAULT 0 COMMENT '文档条数缓存',
-    status              VARCHAR(20)    NOT NULL DEFAULT 'ACTIVE' COMMENT '状态：ACTIVE启用 / INACTIVE停用',
+    status              TINYINT        NOT NULL DEFAULT 0 COMMENT '状态：0正常 / 1禁用',
     created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
@@ -473,20 +477,31 @@ CREATE TABLE knowledge_bases (
 
 -- 1. 内置管理员、普通测试用户
 -- 密码明文均为 admin123 / user123，已BCrypt加密
-INSERT INTO users (username, password, email, role, balance)
+INSERT INTO users (user_id, username, password, email, phone_number, company_name, role, balance, total_usage_tokens, status)
 VALUES
-('admin', '$2a$10$1C8bV3BolSA88HKxu4NXnOOY9ieaYwCpezFznlaNVP6OqqxjW0V42', 'admin@hczk.com', 'ADMIN', 10000.0000),
-('user',  '$2a$10$1C8bV3BolSA88HKxu4NXnOOY9ieaYwCpezFznlaNVP6OqqxjW0V42', 'user@hczk.com',  'USER',  1250.0000);
+('U1A2B3C4D5E6F7G8', 'admin', '$2a$10$1C8bV3BolSA88HKxu4NXnOOY9ieaYwCpezFznlaNVP6OqqxjW0V42', 'admin@hczk.com', '13800000001', '桓宸智科', 0, 10000.0000, 0, 0),
+('U9H8G7F6E5D4C3B2', 'user',  '$2a$10$1C8bV3BolSA88HKxu4NXnOOY9ieaYwCpezFznlaNVP6OqqxjW0V42', 'user@hczk.com',  '13800000002', '测试公司',  1,  1250.0000, 58000, 0);
 
 -- 2. 预置主流大模型配置
-INSERT INTO ai_models (name, provider, model_id, status, api_base, input_price, output_price, max_tokens)
+INSERT INTO ai_models (name, provider, model_id, status, api_base, max_tokens)
 VALUES
-('DeepSeek-V3',      'DeepSeek',     'deepseek-chat',        'ACTIVE',   'https://api.deepseek.com/v1',                0.001000, 0.002000, 8192),
-('ERNIE-4.0-Turbo', '百度智能云',   'ernie-4.0-turbo-8k',   'ACTIVE',   'https://qianfan.baidubce.com/v2',           0.008000, 0.008000, 8192),
-('qwen-max',        '阿里云',       'qwen-max',             'ACTIVE',   'https://dashscope.aliyuncs.com/compatible-mode/v1',0.020000,0.020000,32768),
-('GLM-4-Plus',      '智谱AI',       'glm-4-plus',           'INACTIVE', 'https://open.bigmodel.cn/api/paas/v4',       0.010000, 0.010000, 128000);
+('DeepSeek-V3',      'DeepSeek',     'deepseek-chat',        0,   'https://api.deepseek.com/v1',                8192),
+('ERNIE-4.0-Turbo', '百度智能云',   'ernie-4.0-turbo-8k',   0,   'https://qianfan.baidubce.com/v2',           8192),
+('qwen-max',        '阿里云',       'qwen-max',             0,   'https://dashscope.aliyuncs.com/compatible-mode/v1',32768),
+('GLM-4-Plus',      '智谱AI',       'glm-4-plus',           1,   'https://open.bigmodel.cn/api/paas/v4',       128000);
 
--- 3. 预置第三方渠道配置（默认关闭，需手动开启+填写密钥）
+-- 3. 预置API Key（每个用户仅一个Key，绑定模型，设置统一单价）
+-- admin用户的API Key：绑定DeepSeek-V3和qwen-max，单价0.002元/千Tokens
+INSERT INTO api_keys (name, api_key, user_id, model_ids, unit_price, total_calls, total_input_tokens, total_output_tokens, total_cost, status)
+VALUES
+('管理员-通用Key', 'sk-hczk-admin-x1y2z3a4b5c6d7e8f9g0h1i2j3k4l5m6', 1, '[1, 3]', 0.002000, 128, 32000, 26000, 0.116000, 0);
+
+-- user用户的API Key：绑定DeepSeek-V3、ERNIE-4.0-Turbo、qwen-max，单价0.005元/千Tokens
+INSERT INTO api_keys (name, api_key, user_id, model_ids, unit_price, total_calls, total_input_tokens, total_output_tokens, total_cost, status)
+VALUES
+('测试用户-通用Key', 'sk-hczk-user-m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6', 2, '[1, 2, 3]', 0.005000, 42, 8400, 6720, 0.075600, 0);
+
+-- 4. 预置第三方渠道配置（默认关闭，需手动开启+填写密钥）
 INSERT INTO platform_configs (platform_type, webhook_url, auto_reply, enabled)
 VALUES
 ('MEITUAN', 'https://your-domain/api/webhook/meituan', FALSE, FALSE),
