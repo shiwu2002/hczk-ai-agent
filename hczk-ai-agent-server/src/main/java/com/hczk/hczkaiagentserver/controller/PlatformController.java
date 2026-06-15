@@ -1,8 +1,10 @@
 package com.hczk.hczkaiagentserver.controller;
 
 import com.hczk.hczkaiagentserver.common.Result;
+import com.hczk.hczkaiagentserver.entity.Agent;
 import com.hczk.hczkaiagentserver.entity.MerchantAgentBinding;
 import com.hczk.hczkaiagentserver.entity.Skill;
+import com.hczk.hczkaiagentserver.service.AgentService;
 import com.hczk.hczkaiagentserver.service.MerchantAgentBindingService;
 import com.hczk.hczkaiagentserver.service.SkillService;
 import lombok.extern.slf4j.Slf4j;
@@ -18,11 +20,48 @@ public class PlatformController {
 
     private final SkillService skillService;
     private final MerchantAgentBindingService bindingService;
+    private final AgentService agentService;
 
-    public PlatformController(SkillService skillService, MerchantAgentBindingService bindingService) {
+    public PlatformController(SkillService skillService, MerchantAgentBindingService bindingService, AgentService agentService) {
         this.skillService = skillService;
         this.bindingService = bindingService;
+        this.agentService = agentService;
     }
+
+    // ========== 智能体管理 ==========
+
+    @PostMapping("/agents")
+    public Result<Agent> createAgent(@RequestBody Agent agent) {
+        return Result.success(agentService.createAgent(agent));
+    }
+
+    @GetMapping("/agents")
+    public Result<List<Agent>> getAllAgents() {
+        return Result.success(agentService.getAllAgents());
+    }
+
+    @GetMapping("/agents/{id}")
+    public Result<Agent> getAgentById(@PathVariable Long id) {
+        return Result.success(agentService.getAgentById(id));
+    }
+
+    @PutMapping("/agents/{id}")
+    public Result<Agent> updateAgent(@PathVariable Long id, @RequestBody Agent agent) {
+        return Result.success(agentService.updateAgent(id, agent));
+    }
+
+    @DeleteMapping("/agents/{id}")
+    public Result<Void> deleteAgent(@PathVariable Long id) {
+        agentService.deleteAgent(id);
+        return Result.success();
+    }
+
+    @PostMapping("/agents/{id}/toggle")
+    public Result<Agent> toggleAgentStatus(@PathVariable Long id) {
+        return Result.success(agentService.toggleStatus(id));
+    }
+
+    // ========== Skill 管理 ==========
 
     @PostMapping("/skills")
     public Result<Skill> createSkill(@RequestBody Skill skill) {
