@@ -84,13 +84,34 @@ async function deleteModel(model) {
 }
 
 /**
- * 保存模型（新增或更新）
- * 根据 editingModel 是否存在判断是新增还是编辑
- */
-async function saveModel() {
-  const body = editingModel.value
-    ? { ...editingModel.value, ...newModel.value }
-    : { ...newModel.value }
+     * 保存模型（新增或编辑）
+     * 根据 editingModel 是否存在判断是新增还是编辑
+     */
+    async function saveModel() {
+      if (!newModel.value.name.trim()) {
+        alert('请输入模型名称')
+        return
+      }
+      if (!newModel.value.provider.trim()) {
+        alert('请输入提供商')
+        return
+      }
+      if (!newModel.value.modelId.trim()) {
+        alert('请输入模型ID')
+        return
+      }
+      if (!newModel.value.inputPrice || newModel.value.inputPrice <= 0) {
+        alert('请输入有效的输入价格（必须大于0）')
+        return
+      }
+      if (!newModel.value.outputPrice || newModel.value.outputPrice <= 0) {
+        alert('请输入有效的输出价格（必须大于0）')
+        return
+      }
+      
+      const body = editingModel.value
+        ? { ...editingModel.value, ...newModel.value }
+        : { ...newModel.value }
 
   if (editingModel.value) {
     const res = await api.put(`/models/${editingModel.value.id}`, body)

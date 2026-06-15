@@ -1,7 +1,7 @@
 package com.hczk.hczkaiagentserver.security;
 
 import com.hczk.hczkaiagentserver.entity.ApiKey;
-import com.hczk.hczkaiagentserver.mapper.ApiKeyMapper;
+import com.hczk.hczkaiagentserver.service.RedisCacheService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,11 +20,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
-/**
- * API Key 认证过滤器
- * 识别 sk-hczk- 格式的 API Key，验证有效后将用户信息和 apiKeyId 写入 Spring Security 上下文
- * 仅在 JWT 认证未生效时尝试 API Key 认证，两者互不冲突
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -32,39 +27,30 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String API_KEY_PREFIX = "sk-hczk-";
 
-    private final ApiKeyMapper apiKeyMapper;
+    private final RedisCacheService redisCacheService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        // 如果已经有认证信息（JWT 过滤器已处理），则跳过
         if (SecurityContextHolder.getContext().getAuthentication() != null) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        // 从 Authorization 请求头提取 API Key
         String apiKeyValue = extractApiKey(request);
 
         if (apiKeyValue != null) {
-            ApiKey apiKey = apiKeyMapper.selectOne(
-                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ApiKey>()
-                            .eq(ApiKey::getApiKey, apiKeyValue));
+            ApiKey apiKey = redisCacheService.getApiKey(apiKeyValue);
             if (apiKey != null && "active".equals(apiKey.getStatus())) {
                 log.debug("API Key 认证成功: userId={}, apiKeyId={}, keyName={}", apiKey.getUserId(), apiKey.getId(), apiKey.getName());
 
-                // 更新最后使用时间和调用次数
-                updateApiKeyUsage(apiKey);
-
-                // 构建认证对象
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(
                                 "apikey-user-" + apiKey.getUserId(),
                                 null,
                                 List.of(new SimpleGrantedAuthority("ROLE_USER"))
                         );
-                // 将 userId 和 apiKeyId 存入 details，后续 ChatService 可获取
                 authentication.setDetails(Map.of("userId", apiKey.getUserId(), "apiKeyId", apiKey.getId()));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             } else if (apiKeyValue.startsWith(API_KEY_PREFIX)) {
@@ -75,12 +61,6 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    /**
-     * 从请求头中提取 API Key
-     * 支持两种格式：
-     * 1. Authorization: Bearer sk-hczk-xxx
-     * 2. Authorization: sk-hczk-xxx
-     */
     private String extractApiKey(HttpServletRequest request) {
         String authHeader = request.getHeader("Authorization");
         if (!StringUtils.hasText(authHeader)) {
@@ -94,20 +74,6 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
             token = authHeader.trim();
         }
 
-        // 仅识别 sk-hczk- 前缀的 API Key
         return token.startsWith(API_KEY_PREFIX) ? token : null;
-    }
-
-    /**
-     * 更新 API Key 使用统计（最后使用时间 + 调用次数）
-     */
-    private void updateApiKeyUsage(ApiKey apiKey) {
-        try {
-            apiKey.setTotalCalls(apiKey.getTotalCalls() + 1);
-            apiKey.setLastUsedAt(LocalDateTime.now());
-            apiKeyMapper.updateById(apiKey);
-        } catch (Exception e) {
-            log.warn("更新 API Key 使用统计失败: {}", e.getMessage());
-        }
     }
 }

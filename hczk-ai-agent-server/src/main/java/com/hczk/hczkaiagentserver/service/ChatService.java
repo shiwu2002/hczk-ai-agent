@@ -191,17 +191,11 @@ public class ChatService {
             String detail = String.format("模型[%s]调用 - 输入:%d tokens, 输出:%d tokens",
                     model.getName(), inputTokens, outputTokens);
 
-            if (totalCost.compareTo(BigDecimal.ZERO) > 0) {
-                boolean success = billingService.deductBalance(userId, apiKeyId, totalCost, inputTokens, outputTokens, detail);
-                if (success) {
-                    log.info("计费成功: userId={}, apiKeyId={}, cost={}元", userId, apiKeyId, totalCost);
-                } else {
-                    log.warn("计费失败（余额不足）: userId={}, cost={}元", userId, totalCost);
-                }
+            boolean success = billingService.deductBalance(userId, apiKeyId, totalCost, inputTokens, outputTokens, detail);
+            if (success) {
+                log.info("计费成功: userId={}, apiKeyId={}, cost={}元", userId, apiKeyId, totalCost);
             } else {
-                // 费用为0（模型未定价），仍然记录用量但不扣费
-                billingService.recordUsage(userId, apiKeyId, inputTokens, outputTokens, detail);
-                log.info("模型未定价或费用为0，仅记录用量: userId={}, model={}", userId, model.getName());
+                log.warn("计费失败（余额不足）: userId={}, cost={}元", userId, totalCost);
             }
 
             // 保存对话日志

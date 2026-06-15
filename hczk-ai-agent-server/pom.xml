@@ -152,6 +152,12 @@
             <version>3.0.3</version>
         </dependency>
 
+        <!-- RabbitMQ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
         <!-- Resilience4j: 熔断 + 重试 + 限流 -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>

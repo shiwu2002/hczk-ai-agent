@@ -29,6 +29,20 @@ spring:
           max-wait: 3000ms
       timeout: 2000ms
 
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: /
+    connection-timeout: 30000
+    listener:
+      simple:
+        concurrency: 5
+        max-concurrency: 20
+        prefetch: 10
+        acknowledge-mode: auto
+
   mail:
     host: ${MAIL_HOST:smtp.qq.com}
     port: ${MAIL_PORT:465}
