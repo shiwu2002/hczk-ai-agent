@@ -27,17 +27,20 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
             throw new RuntimeException("商家已存在绑定: " + binding.getMerchantId());
         }
 
-        if (binding.getSkillId() == null && binding.getAgentEndpoint() == null) {
-            throw new RuntimeException("必须提供 skill_id 或 agent_endpoint");
+        // 至少需要一种绑定方式：agentId、skillId 或 agentEndpoint
+        if (binding.getAgentId() == null && binding.getSkillId() == null && binding.getAgentEndpoint() == null) {
+            throw new RuntimeException("必须提供 agent_id、skill_id 或 agent_endpoint");
         }
 
+        // skillId 和 agentEndpoint 不能同时提供
         if (binding.getSkillId() != null && binding.getAgentEndpoint() != null) {
             throw new RuntimeException("skill_id 和 agent_endpoint 不能同时提供");
         }
 
         bindingMapper.insert(binding);
-        log.info("创建商家绑定: merchantId={}, skillId={}, endpoint={}",
-                binding.getMerchantId(), binding.getSkillId(), binding.getAgentEndpoint());
+        log.info("创建商家绑定: merchantId={}, agentId={}, skillId={}, endpoint={}, apiKeyId={}",
+                binding.getMerchantId(), binding.getAgentId(), binding.getSkillId(),
+                binding.getAgentEndpoint(), binding.getApiKeyId());
         return binding;
     }
 

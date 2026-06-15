@@ -17,7 +17,7 @@ const navItems = [
   { path: '/admin/skills', name: 'Skill 管理', icon: Server },
   { path: '/admin/knowledge', name: '知识库管理', icon: Database },
   { path: '/admin/models', name: '模型管理', icon: Cpu },
-  { path: '/admin/bindings', name: '智能体绑定', icon: Link },
+
   { path: '/admin/apikeys', name: 'API Keys', icon: KeyRound },
   { path: '/admin/users', name: '用户管理', icon: Users },
   { path: '/admin/billing', name: '计费管理', icon: Receipt },

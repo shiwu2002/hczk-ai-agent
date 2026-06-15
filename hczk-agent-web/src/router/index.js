@@ -46,7 +46,7 @@ const router = createRouter({
         { path: 'knowledge', name: 'admin-knowledge', component: () => import('@/views/admin/Knowledge.vue') },
         { path: 'knowledge/:collectionName/chunks', name: 'admin-knowledge-chunks', component: () => import('@/views/admin/KnowledgeChunks.vue') },
         { path: 'models', name: 'admin-models', component: () => import('@/views/admin/Models.vue') },
-        { path: 'bindings', name: 'admin-bindings', component: () => import('@/views/admin/Bindings.vue') },
+
         { path: 'apikeys', name: 'admin-apikeys', component: () => import('@/views/admin/ApiKeys.vue') },
         { path: 'users', name: 'admin-users', component: () => import('@/views/admin/Users.vue') },
         { path: 'billing', name: 'admin-billing', component: () => import('@/views/admin/Billing.vue') },

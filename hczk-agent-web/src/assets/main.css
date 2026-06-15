@@ -62,6 +62,20 @@
     border-radius: 8px;
   }
 
+  /* 自定义尺寸 */
+  .w-13 { width: 3.25rem; }
+  .h-13 { height: 3.25rem; }
+  .w-4\.5 { width: 1.125rem; }
+  .h-4\.5 { height: 1.125rem; }
+
+  /* 文本截断 */
+  .line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
   .btn-primary {
     background: linear-gradient(135deg, var(--color-accent-primary), #059669);
     color: white;

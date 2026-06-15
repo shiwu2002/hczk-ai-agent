@@ -117,10 +117,10 @@ public class ChatController {
 
                 if (streamUrl != null && !streamUrl.trim().isEmpty()) {
                     // 智能体支持流式，代理转发 SSE
-                    return proxySse(agent, userId, request);
+                    return proxySse(agent, userId, request, binding);
                 } else {
                     // 降级：同步调用，包装为 SSE 格式返回
-                    return fallbackSse(agent, userId, request);
+                    return fallbackSse(agent, userId, request, binding);
                 }
             }
 
@@ -252,9 +252,9 @@ public class ChatController {
             }
 
             if (binding.getAgentId() != null) {
-                return forwardToAgent(binding.getAgentId(), userId, message, sessionId, request);
+                return forwardToAgent(binding.getAgentId(), userId, message, sessionId, request, binding);
             } else if (binding.getAgentEndpoint() != null && !binding.getAgentEndpoint().isEmpty()) {
-                return forwardToEndpoint(binding.getAgentEndpoint(), binding.getAgentAuthHeader(), userId, message, sessionId);
+                return forwardToEndpoint(binding.getAgentEndpoint(), binding.getAgentAuthHeader(), userId, message, sessionId, binding);
             } else if (binding.getSkillId() != null && !binding.getSkillId().isEmpty()) {
                 return forwardToRuntime(binding.getSkillId(), userId, message, sessionId, (String) request.get("collection_name"));
             } else {
@@ -267,7 +267,7 @@ public class ChatController {
         }
     }
 
-    private ResponseEntity<?> forwardToAgent(Long agentId, Long userId, String message, String sessionId, Map<String, Object> originalRequest) {
+    private ResponseEntity<?> forwardToAgent(Long agentId, Long userId, String message, String sessionId, Map<String, Object> originalRequest, MerchantAgentBinding binding) {
         Agent agent = agentService.getAgentById(agentId);
         if (agent == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "智能体不存在"));
@@ -282,8 +282,13 @@ public class ChatController {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            // 优先使用智能体自身的认证头
             if (agent.getAuthHeader() != null && !agent.getAuthHeader().trim().isEmpty()) {
                 headers.set("Authorization", agent.getAuthHeader());
+            }
+            // 如果绑定中配置了 API Key，作为 X-Api-Key 传递给智能体
+            if (binding != null && binding.getApiKey() != null && !binding.getApiKey().trim().isEmpty()) {
+                headers.set("X-Api-Key", binding.getApiKey());
             }
 
             Map<String, Object> body = new java.util.HashMap<>();
@@ -300,7 +305,7 @@ public class ChatController {
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
-            log.info("转发到智能体: agentId={}, chatEndpoint={}", agentId, agent.getChatEndpoint());
+            log.info("转发到智能体: agentId={}, chatEndpoint={}, withApiKey={}", agentId, agent.getChatEndpoint(), binding != null && binding.getApiKey() != null);
             @SuppressWarnings("unchecked")
             ResponseEntity<Map> response = restTemplate.postForEntity(
                 agent.getChatEndpoint(), request, Map.class);
@@ -316,7 +321,7 @@ public class ChatController {
     /**
      * 代理转发 SSE 流式对话
      */
-    private SseEmitter proxySse(Agent agent, Long userId, Map<String, Object> originalRequest) {
+    private SseEmitter proxySse(Agent agent, Long userId, Map<String, Object> originalRequest, MerchantAgentBinding binding) {
         SseEmitter emitter = new SseEmitter(60000L);
 
         sseExecutor.execute(() -> {
@@ -329,6 +334,10 @@ public class ChatController {
                 conn.setRequestProperty("Accept", "text/event-stream");
                 if (agent.getAuthHeader() != null && !agent.getAuthHeader().trim().isEmpty()) {
                     conn.setRequestProperty("Authorization", agent.getAuthHeader());
+                }
+                // 传递绑定的 API Key
+                if (binding != null && binding.getApiKey() != null && !binding.getApiKey().trim().isEmpty()) {
+                    conn.setRequestProperty("X-Api-Key", binding.getApiKey());
                 }
                 conn.setConnectTimeout(5000);
                 conn.setReadTimeout(60000);
@@ -372,7 +381,7 @@ public class ChatController {
     /**
      * 降级：同步调用包装为 SSE 格式返回
      */
-    private SseEmitter fallbackSse(Agent agent, Long userId, Map<String, Object> originalRequest) {
+    private SseEmitter fallbackSse(Agent agent, Long userId, Map<String, Object> originalRequest, MerchantAgentBinding binding) {
         SseEmitter emitter = new SseEmitter(30000L);
 
         sseExecutor.execute(() -> {
@@ -380,7 +389,7 @@ public class ChatController {
                 ResponseEntity<?> response = forwardToAgent(agent.getId(), userId,
                         (String) originalRequest.get("message"),
                         (String) originalRequest.getOrDefault("session_id", UUID.randomUUID().toString()),
-                        originalRequest);
+                        originalRequest, binding);
 
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                     @SuppressWarnings("unchecked")
@@ -438,12 +447,16 @@ public class ChatController {
         }
     }
 
-    private ResponseEntity<?> forwardToEndpoint(String endpoint, String authHeader, Long userId, String message, String sessionId) {
+    private ResponseEntity<?> forwardToEndpoint(String endpoint, String authHeader, Long userId, String message, String sessionId, MerchantAgentBinding binding) {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             if (authHeader != null) {
                 headers.set("Authorization", authHeader);
+            }
+            // 如果绑定中配置了 API Key，作为 X-Api-Key 传递
+            if (binding != null && binding.getApiKey() != null && !binding.getApiKey().trim().isEmpty()) {
+                headers.set("X-Api-Key", binding.getApiKey());
             }
 
             Map<String, Object> body = Map.of(
