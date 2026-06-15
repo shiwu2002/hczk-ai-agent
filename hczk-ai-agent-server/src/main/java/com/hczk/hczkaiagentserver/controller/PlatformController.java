@@ -5,7 +5,6 @@ import com.hczk.hczkaiagentserver.entity.MerchantAgentBinding;
 import com.hczk.hczkaiagentserver.entity.Skill;
 import com.hczk.hczkaiagentserver.service.MerchantAgentBindingService;
 import com.hczk.hczkaiagentserver.service.SkillService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
@@ -16,17 +15,26 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/platform")
-@RequiredArgsConstructor
 @CrossOrigin(origins = "*")
 @Slf4j
 public class PlatformController {
 
     private final SkillService skillService;
     private final MerchantAgentBindingService bindingService;
-    private final RestTemplate restTemplate = new RestTemplate();
 
-    @Value("${agent.runtime.health-url:http://localhost:3000/api/health}")
+    @Value("${agent.runtime.health-url:http://127.0.0.1:3000/api/health}")
     private String runtimeHealthUrl;
+
+    private final RestTemplate restTemplate;
+
+    public PlatformController(SkillService skillService, MerchantAgentBindingService bindingService) {
+        this.skillService = skillService;
+        this.bindingService = bindingService;
+        var requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(5000);
+        requestFactory.setReadTimeout(5000);
+        this.restTemplate = new RestTemplate(requestFactory);
+    }
 
     @PostMapping("/skills")
     public Result<Skill> createSkill(@RequestBody Skill skill) {
@@ -68,27 +76,27 @@ public class PlatformController {
         return Result.success(bindingService.getAllBindings());
     }
 
-    @GetMapping("/bindings/{userId}")
-    public Result<MerchantAgentBinding> getBindingByUserId(@PathVariable Long userId) {
-        return bindingService.findByUserId(userId)
+    @GetMapping("/bindings/{merchantId}")
+    public Result<MerchantAgentBinding> getBindingByMerchantId(@PathVariable String merchantId) {
+        return bindingService.findByMerchantId(merchantId)
                 .map(Result::success)
                 .orElse(Result.error("绑定不存在"));
     }
 
-    @PutMapping("/bindings/{userId}")
-    public Result<MerchantAgentBinding> updateBinding(@PathVariable Long userId, @RequestBody MerchantAgentBinding binding) {
-        return Result.success(bindingService.updateBinding(userId, binding));
+    @PutMapping("/bindings/{merchantId}")
+    public Result<MerchantAgentBinding> updateBinding(@PathVariable String merchantId, @RequestBody MerchantAgentBinding binding) {
+        return Result.success(bindingService.updateBinding(merchantId, binding));
     }
 
-    @DeleteMapping("/bindings/{userId}")
-    public Result<Void> deleteBinding(@PathVariable Long userId) {
-        bindingService.deleteBinding(userId);
+    @DeleteMapping("/bindings/{merchantId}")
+    public Result<Void> deleteBinding(@PathVariable String merchantId) {
+        bindingService.deleteBinding(merchantId);
         return Result.success();
     }
 
-    @PatchMapping("/bindings/{userId}")
-    public Result<MerchantAgentBinding> toggleBinding(@PathVariable Long userId, @RequestParam boolean enabled) {
-        return Result.success(bindingService.toggleBinding(userId, enabled));
+    @PatchMapping("/bindings/{merchantId}")
+    public Result<MerchantAgentBinding> toggleBinding(@PathVariable String merchantId, @RequestParam boolean enabled) {
+        return Result.success(bindingService.toggleBinding(merchantId, enabled));
     }
 
     /**

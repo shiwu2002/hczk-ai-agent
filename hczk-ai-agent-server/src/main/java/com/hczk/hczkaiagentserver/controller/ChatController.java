@@ -14,7 +14,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
 import java.util.UUID;
@@ -43,17 +42,25 @@ public class ChatController {
 
     /**
      * 内部聊天接口（管理后台/前端使用）
+     * 支持 stream=true（SSE流式）和 stream=false（JSON完整响应）
      */
-    @PostMapping(value = "/chat/completions", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter completions(@RequestBody ChatRequest request) {
+    @PostMapping(value = "/chat/completions", produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE})
+    public Object completions(@RequestBody ChatRequest request) {
+        if (Boolean.FALSE.equals(request.getStream())) {
+            return chatService.chat(request);
+        }
         return chatService.streamChat(request);
     }
 
     /**
      * OpenAI 兼容格式接口（外部 API 调用）
+     * 支持 stream=true（SSE流式）和 stream=false（JSON完整响应）
      */
-    @PostMapping(value = "/v1/chat/completions", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter v1Completions(@RequestBody ChatRequest request) {
+    @PostMapping(value = "/v1/chat/completions", produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE})
+    public Object v1Completions(@RequestBody ChatRequest request) {
+        if (Boolean.FALSE.equals(request.getStream())) {
+            return chatService.chat(request);
+        }
         return chatService.streamChat(request);
     }
 
@@ -97,29 +104,26 @@ public class ChatController {
             ApiKey key = apiKeyService.getActiveApiKey(apiKey);
             Long userId = key.getUserId();
             
-            // 2. 查询用户绑定（merchant_agent_binding）
-            var bindingOpt = bindingService.findByUserId(userId);
+            // 2. 查询商家绑定（merchant_agent_binding）
+            var bindingOpt = bindingService.findByMerchantId(key.getName());
             if (bindingOpt.isEmpty()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "用户未绑定智能体"));
+                return ResponseEntity.badRequest().body(Map.of("error", "商家未绑定智能体"));
             }
 
             MerchantAgentBinding binding = bindingOpt.get();
             if (!binding.getEnabled()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "用户智能体绑定已禁用"));
+                return ResponseEntity.badRequest().body(Map.of("error", "商家智能体绑定已禁用"));
             }
 
             // 3. 根据绑定类型路由
-            if (binding.getAgentId() != null) {
-                // 平台智能体模式：查询智能体，根据智能体类型路由
-                return routeByAgent(binding.getAgentId(), userId, message, sessionId, collectionName);
-            } else if (binding.getAgentEndpoint() != null && !binding.getAgentEndpoint().isEmpty()) {
+            if (binding.getAgentEndpoint() != null && !binding.getAgentEndpoint().isEmpty()) {
                 // Endpoint 模式：转发到定制智能体
                 return forwardToEndpoint(binding, userId, message, sessionId);
             } else if (binding.getSkillId() != null && !binding.getSkillId().isEmpty()) {
                 // Skill 模式：转发到通用运行时
                 return forwardToRuntime(binding, userId, message, sessionId, collectionName);
             } else {
-                return ResponseEntity.badRequest().body(Map.of("error", "用户绑定配置无效"));
+                return ResponseEntity.badRequest().body(Map.of("error", "商家绑定配置无效"));
             }
             
         } catch (Exception e) {

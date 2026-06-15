@@ -29,6 +29,7 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -134,70 +135,202 @@ public class ChatService {
         List<org.springframework.ai.chat.messages.Message> messages = new ArrayList<>();
         messages.add(new UserMessage(effectiveMessage));
 
-        // 通过模型工厂创建ChatModel实例
+        // 通过模型工厂创建ChatModel实例，设置请求级 thinking 参数
         ChatModel chatModel = chatModelFactory.getOrCreate(model);
-        Prompt prompt = new Prompt(messages);
+        try {
+            chatModelFactory.setRequestThinking(request.getEnableThinking());
+            Prompt prompt = new Prompt(messages);
 
-        // 创建SSE发射器（0L=不超时）
-        SseEmitter emitter = new SseEmitter(0L);
-        AtomicBoolean completed = new AtomicBoolean(false);
-        StringBuilder outputContent = new StringBuilder();
-        long startTime = System.currentTimeMillis();
+            // 创建SSE发射器（0L=不超时）
+            SseEmitter emitter = new SseEmitter(0L);
+            AtomicBoolean completed = new AtomicBoolean(false);
+            StringBuilder outputContent = new StringBuilder();
+            long startTime = System.currentTimeMillis();
 
-        // SSE生命周期回调
-        emitter.onCompletion(() -> completed.set(true));
-        emitter.onTimeout(() -> completed.set(true));
-        emitter.onError(e -> completed.set(true));
+            // SSE生命周期回调
+            emitter.onCompletion(() -> {
+                completed.set(true);
+                chatModelFactory.clearRequestThinking();
+            });
+            emitter.onTimeout(() -> {
+                completed.set(true);
+                chatModelFactory.clearRequestThinking();
+            });
+            emitter.onError(e -> {
+                completed.set(true);
+                chatModelFactory.clearRequestThinking();
+            });
 
-        // 订阅流式响应
-        Flux<ChatResponse> flux = chatModel.stream(prompt);
+            // 订阅流式响应
+            Flux<ChatResponse> flux = chatModel.stream(prompt);
 
-        // Lambda中使用的final变量
-        final AiModel finalModel = model;
-        final Long finalApiKeyId = apiKeyId;
-        final Long finalUserId = userId;
-        final BigDecimal unitPrice = apiKey.getUnitPrice() != null ? apiKey.getUnitPrice() : BigDecimal.ZERO;
+            // Lambda中使用的final变量
+            final AiModel finalModel = model;
+            final Long finalApiKeyId = apiKeyId;
+            final Long finalUserId = userId;
+            final BigDecimal unitPrice = apiKey.getUnitPrice() != null ? apiKey.getUnitPrice() : BigDecimal.ZERO;
+            final String chatId = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
+            final long createdSeconds = System.currentTimeMillis() / 1000;
+            final String modelName = model.getModelId() != null ? model.getModelId() : model.getName();
 
-        flux.subscribe(
-                // 数据回调：逐块发送SSE事件
-                chatResponse -> {
-                    if (completed.get()) return;
-                    try {
-                        String content = chatResponse.getResult().getOutput().getText();
-                        if (content != null && !content.isEmpty()) {
-                            outputContent.append(content);
-                            emitter.send(SseEmitter.event().data(content));
-                        }
-                    } catch (IOException e) {
-                        completed.set(true);
-                        log.debug("客户端断开连接，停止发送SSE数据");
-                    }
-                },
-                // 错误回调：记录失败日志，发送错误事件
-                error -> {
-                    log.error("流式调用失败: {}", error.getMessage(), error);
-                    if (completed.compareAndSet(false, true)) {
-                        saveChatLog(finalModel, effectiveMessage, outputContent.toString(),
-                                inputTokens, finalUserId, finalApiKeyId, startTime, "failed", error.getMessage(), BigDecimal.ZERO);
-                        emitter.completeWithError(error);
-                    }
-                },
-                // 完成回调：发送[DONE]标记，触发计费
-                () -> {
-                    if (completed.compareAndSet(false, true)) {
+            flux.subscribe(
+                    // 数据回调：逐块发送SSE事件（OpenAI 兼容格式）
+                    chatResponse -> {
+                        if (completed.get()) return;
                         try {
-                            emitter.send(SseEmitter.event().name("done").data("[DONE]"));
-                            emitter.complete();
-                        } catch (IOException ignored) {
+                            String content = chatResponse.getResult().getOutput().getText();
+                            if (content != null && !content.isEmpty()) {
+                                outputContent.append(content);
+                                // OpenAI 标准流式格式
+                                String chunk = String.format(
+                                    "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%d,\"model\":\"%s\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"%s\"},\"finish_reason\":null}]}",
+                                    chatId, createdSeconds, modelName, escapeJson(content)
+                                );
+                                emitter.send(SseEmitter.event().data(chunk));
+                            }
+                        } catch (IOException e) {
+                            completed.set(true);
+                            log.debug("客户端断开连接，停止发送SSE数据");
                         }
-                        // 流式完成后统计Token并扣费
-                        processBilling(finalModel, effectiveMessage, inputTokens, outputContent.toString(),
-                                finalUserId, finalApiKeyId, unitPrice, startTime);
+                    },
+                    // 错误回调：记录失败日志，发送错误事件
+                    error -> {
+                        log.error("流式调用失败: {}", error.getMessage(), error);
+                        if (completed.compareAndSet(false, true)) {
+                            saveChatLog(finalModel, effectiveMessage, outputContent.toString(),
+                                    inputTokens, finalUserId, finalApiKeyId, startTime, "failed", error.getMessage(), BigDecimal.ZERO);
+                            emitter.completeWithError(error);
+                            chatModelFactory.clearRequestThinking();
+                        }
+                    },
+                    // 完成回调：发送[DONE]标记，触发计费
+                    () -> {
+                        if (completed.compareAndSet(false, true)) {
+                            try {
+                                // 发送最后一个 chunk（finish_reason: stop）
+                                String finalChunk = String.format(
+                                    "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%d,\"model\":\"%s\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}",
+                                    chatId, createdSeconds, modelName
+                                );
+                                emitter.send(SseEmitter.event().data(finalChunk));
+                                emitter.send(SseEmitter.event().data("[DONE]"));
+                                emitter.complete();
+                            } catch (IOException ignored) {
+                            }
+                            // 流式完成后统计Token并扣费
+                            processBilling(finalModel, effectiveMessage, inputTokens, outputContent.toString(),
+                                    finalUserId, finalApiKeyId, unitPrice, startTime);
+                            chatModelFactory.clearRequestThinking();
+                        }
                     }
-                }
-        );
+            );
 
-        return emitter;
+            return emitter;
+        } catch (Exception e) {
+            chatModelFactory.clearRequestThinking();
+            throw e;
+        }
+    }
+
+    /**
+     * 非流式聊天入口
+     *
+     * 处理流程与 streamChat 相同，但返回完整的 JSON 响应而非 SSE 流
+     *
+     * @param request 聊天请求（包含消息内容、可选模型ID/名称）
+     * @return OpenAI 兼容格式的完整响应 Map
+     * @throws RuntimeException 消息为空、未认证、API Key无效、模型不可用、余额不足
+     */
+    public Map<String, Object> chat(ChatRequest request) {
+        String effectiveMessage = request.getEffectiveMessage();
+        if (effectiveMessage == null || effectiveMessage.trim().isEmpty()) {
+            throw new RuntimeException("消息内容不能为空");
+        }
+
+        // 从SecurityContext提取认证信息
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        Long userId = resolveUserId(auth);
+        Long apiKeyId = resolveApiKeyId(auth);
+
+        if (apiKeyId == null) {
+            throw new RuntimeException("必须通过API Key认证才能调用");
+        }
+
+        ApiKey apiKey = apiKeyMapper.selectById(apiKeyId);
+        if (apiKey == null || apiKey.getStatus() != 0) {
+            throw new RuntimeException("API Key无效或已禁用");
+        }
+
+        if (userId == null) {
+            throw new RuntimeException("无法获取用户信息");
+        }
+
+        AiModel model = resolveModel(request, apiKey);
+
+        if (model.getStatus() != ModelStatus.ACTIVE) {
+            throw new RuntimeException("模型已停用");
+        }
+
+        if (apiKey.getUnitPrice() != null && apiKey.getUnitPrice().compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal balance = billingService.getUserBalanceFromCache(userId);
+            if (balance.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new RuntimeException("余额不足，请先充值");
+            }
+        }
+
+        long inputTokens = TokenCounter.estimateInputTokens(null, effectiveMessage);
+
+        List<org.springframework.ai.chat.messages.Message> messages = new ArrayList<>();
+        messages.add(new UserMessage(effectiveMessage));
+
+        ChatModel chatModel = chatModelFactory.getOrCreate(model);
+        try {
+            chatModelFactory.setRequestThinking(request.getEnableThinking());
+            Prompt prompt = new Prompt(messages);
+            long startTime = System.currentTimeMillis();
+
+            // 同步调用
+            ChatResponse chatResponse = chatModel.call(prompt);
+
+            String outputText = "";
+            if (chatResponse != null && chatResponse.getResult() != null
+                    && chatResponse.getResult().getOutput() != null) {
+                outputText = chatResponse.getResult().getOutput().getText();
+                if (outputText == null) outputText = "";
+            }
+
+            // 计费
+            BigDecimal unitPrice = apiKey.getUnitPrice() != null ? apiKey.getUnitPrice() : BigDecimal.ZERO;
+            processBilling(model, effectiveMessage, inputTokens, outputText, userId, apiKeyId, unitPrice, startTime);
+
+            // 构建 OpenAI 兼容响应
+            String chatId = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
+            long createdSeconds = System.currentTimeMillis() / 1000;
+            String modelName = model.getModelId() != null ? model.getModelId() : model.getName();
+            long outputTokens = TokenCounter.estimateTokens(outputText);
+
+            return Map.of(
+                "id", chatId,
+                "object", "chat.completion",
+                "created", createdSeconds,
+                "model", modelName,
+                "choices", List.of(Map.of(
+                    "index", 0,
+                    "message", Map.of(
+                        "role", "assistant",
+                        "content", outputText
+                    ),
+                    "finish_reason", "stop"
+                )),
+                "usage", Map.of(
+                    "prompt_tokens", inputTokens,
+                    "completion_tokens", outputTokens,
+                    "total_tokens", inputTokens + outputTokens
+                )
+            );
+        } finally {
+            chatModelFactory.clearRequestThinking();
+        }
     }
 
     /**
@@ -407,5 +540,18 @@ public class ChatService {
             if (apiKeyId instanceof Long) return (Long) apiKeyId;
         }
         return null;
+    }
+
+    /**
+     * 转义 JSON 字符串中的特殊字符
+     */
+    private String escapeJson(String text) {
+        if (text == null) return "";
+        return text
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t");
     }
 }

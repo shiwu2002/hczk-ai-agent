@@ -11,11 +11,8 @@ public class MerchantAgentBinding {
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    @TableField("user_id")
-    private Long userId;
-
-    @TableField("agent_id")
-    private Long agentId;
+    @TableField("merchant_id")
+    private String merchantId;
 
     @TableField("skill_id")
     private String skillId;

@@ -26,6 +26,25 @@ public class ChatModelFactory {
         cache.remove(modelId);
     }
 
+    /**
+     * 设置当前请求的 thinking 参数（通过 ThreadLocal 透传到 SDK）
+     * 必须在请求处理完成后调用 clearRequestThinking() 清理
+     *
+     * @param enableThinking 是否启用思考模式，null 表示使用模型默认配置
+     */
+    public void setRequestThinking(Boolean enableThinking) {
+        OpenAiCompatibleChatModel.setRequestThinking(enableThinking);
+        AnthropicChatModel.setRequestThinking(enableThinking);
+    }
+
+    /**
+     * 清除当前请求的 thinking 参数
+     */
+    public void clearRequestThinking() {
+        OpenAiCompatibleChatModel.clearRequestThinking();
+        AnthropicChatModel.clearRequestThinking();
+    }
+
     private ChatModel createChatModel(AiModel model) {
         ModelProviderType type = model.getProviderType();
         if (type == null) {
