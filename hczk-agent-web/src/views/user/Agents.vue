@@ -1,60 +1,53 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useAuthStore } from '@/stores/auth'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useApiStore } from '@/stores/api'
-import { Bot, Plus, Settings2, ExternalLink, Power, Trash2 } from 'lucide-vue-next'
+import { Bot, RefreshCw, Wifi, WifiOff } from 'lucide-vue-next'
 
-const authStore = useAuthStore()
 const api = useApiStore()
-
 const agents = ref([])
-const models = ref([])
+const agentHealthMap = ref({})
 const loading = ref(false)
-const showCreate = ref(false)
-const newAgent = ref({ name: '', description: '', modelId: '' })
+let refreshInterval = null
 
-onMounted(loadData)
+onMounted(() => {
+  loadData()
+  refreshInterval = setInterval(loadHealthStatus, 30000)
+})
+onUnmounted(() => {
+  if (refreshInterval) clearInterval(refreshInterval)
+})
 
 async function loadData() {
   loading.value = true
-  const [agentRes, modelRes] = await Promise.all([
-    api.get(`/agents/user/${authStore.user?.id}`),
-    api.get('/models')
-  ])
-  if (agentRes.code === 200) agents.value = agentRes.data || []
-  if (modelRes.code === 200) models.value = modelRes.data || []
+  const res = await api.get('/agents')
+  if (res.code === 200) agents.value = res.data || []
   loading.value = false
+  await loadHealthStatus()
 }
 
-async function toggleStatus(agent) {
-  const res = await api.post(`/agents/${agent.id}/toggle`)
-  if (res.code === 200) {
-    agent.status = res.data.status
+async function loadHealthStatus() {
+  try {
+    const res = await api.get('/agents/health')
+    if (res.code === 200 && res.data) {
+      agentHealthMap.value = res.data
+    }
+  } catch (e) {
+    console.error('加载健康状态失败:', e)
   }
 }
 
-async function deleteAgent(id) {
-  if (!confirm('确定删除该智能体？')) return
-  const res = await api.del(`/agents/${id}`)
-  if (res.code === 200) loadData()
+function getHealthDotClass(agentId) {
+  const health = agentHealthMap.value[agentId]
+  if (!health) return 'bg-slate-500'
+  if (health.online) return health.runtimeStatus === 'degraded' ? 'bg-amber-400' : 'bg-emerald-400'
+  return 'bg-red-400'
 }
 
-async function createAgent() {
-  if (!newAgent.value.name || !newAgent.value.modelId) {
-    alert('请填写名称和选择模型')
-    return
-  }
-  const res = await api.post('/agents', {
-    name: newAgent.value.name,
-    description: newAgent.value.description,
-    modelId: parseInt(newAgent.value.modelId),
-    userId: authStore.user?.id
-  })
-  if (res.code === 200) {
-    showCreate.value = false
-    newAgent.value = { name: '', description: '', modelId: '' }
-    loadData()
-  }
+function getHealthText(agentId) {
+  const health = agentHealthMap.value[agentId]
+  if (!health) return '未检测'
+  if (health.online) return health.runtimeStatus === 'degraded' ? '降级' : '在线'
+  return '离线'
 }
 </script>
 
@@ -62,76 +55,38 @@ async function createAgent() {
   <div class="space-y-6 animate-fade-in">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-bold text-white">我的智能体</h1>
-        <p class="text-slate-400 mt-1">管理您的 AI 智能体配置与调用</p>
+        <h1 class="text-2xl font-bold text-white">平台智能体</h1>
+        <p class="text-slate-400 mt-1">查看平台注册的智能体运行状态</p>
       </div>
-      <button @click="showCreate = true" class="btn-primary flex items-center gap-2">
-        <Plus class="w-4 h-4" /> 新建智能体
+      <button @click="loadData" class="px-3 py-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 flex items-center gap-2 text-sm">
+        <RefreshCw class="w-3.5 h-3.5" /> 刷新
       </button>
-    </div>
-
-    <div v-if="showCreate" class="glass-card p-6 glow-border">
-      <h3 class="text-lg font-semibold text-white mb-4">新建智能体</h3>
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm text-slate-300 mb-2">名称</label>
-          <input v-model="newAgent.name" class="input-field" placeholder="智能体名称" />
-        </div>
-        <div>
-          <label class="block text-sm text-slate-300 mb-2">描述</label>
-          <input v-model="newAgent.description" class="input-field" placeholder="描述" />
-        </div>
-        <div>
-          <label class="block text-sm text-slate-300 mb-2">绑定模型</label>
-          <select v-model="newAgent.modelId" class="input-field">
-            <option value="">请选择模型</option>
-            <option v-for="m in models" :key="m.id" :value="m.id">{{ m.name }} ({{ m.provider }})</option>
-          </select>
-        </div>
-        <div class="flex gap-3">
-          <button @click="createAgent" class="btn-primary">创建</button>
-          <button @click="showCreate = false" class="btn-secondary">取消</button>
-        </div>
-      </div>
     </div>
 
     <div v-if="loading" class="text-slate-500">加载中...</div>
     <div v-else-if="agents.length === 0" class="text-slate-500">暂无智能体</div>
-    <div class="grid grid-cols-1 gap-4">
-      <div v-for="agent in agents" :key="agent.id" class="glass-card p-6 glow-border">
-        <div class="flex items-start justify-between">
-          <div class="flex items-start gap-4">
-            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 flex items-center justify-center">
-              <Bot class="w-6 h-6 text-emerald-400" />
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div v-for="agent in agents" :key="agent.id" class="glass-card p-5 glow-border">
+        <div class="flex items-start gap-3">
+          <div class="relative">
+            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/20 to-emerald-500/20 flex items-center justify-center">
+              <Bot class="w-5 h-5 text-cyan-400" />
             </div>
-            <div>
-              <div class="flex items-center gap-3">
-                <h3 class="text-lg font-semibold text-white">{{ agent.name }}</h3>
-                <span :class="['px-2 py-0.5 text-xs rounded-full border', agent.status === 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20']">
-                  {{ agent.status === 0 ? '运行中' : '已停用' }}
-                </span>
-              </div>
-              <p class="text-sm text-slate-400 mt-1">{{ agent.description || '无描述' }}</p>
-              <div class="flex items-center gap-4 mt-3">
-                <span class="text-xs text-slate-500 bg-white/5 px-2 py-1 rounded">{{ agent.model?.name || '-' }}</span>
-                <span class="text-xs text-slate-500">{{ (agent.totalCalls || 0).toLocaleString() }} 次调用</span>
-                <span class="text-xs text-slate-500">{{ (agent.totalTokens || 0).toLocaleString() }} tokens</span>
-              </div>
-            </div>
+            <div :class="['absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-[#0a0f1c]', getHealthDotClass(agent.id)]"></div>
           </div>
-          <div class="flex items-center gap-2">
-            <button @click="toggleStatus(agent)" :class="['p-2 rounded-lg transition-colors', agent.status === 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']">
-              <Power class="w-4 h-4" />
-            </button>
-            <button class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10">
-              <Settings2 class="w-4 h-4" />
-            </button>
-            <button class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10">
-              <ExternalLink class="w-4 h-4" />
-            </button>
-            <button @click="deleteAgent(agent.id)" class="p-2 rounded-lg bg-white/5 text-red-400 hover:bg-red-500/10">
-              <Trash2 class="w-4 h-4" />
-            </button>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <h3 class="text-base font-semibold text-white truncate">{{ agent.name }}</h3>
+              <span :class="['text-xs', agentHealthMap[agent.id]?.online ? 'text-emerald-400' : 'text-red-400']">
+                {{ getHealthText(agent.id) }}
+              </span>
+            </div>
+            <p class="text-xs text-slate-400 mt-1 truncate">{{ agent.description || '无描述' }}</p>
+            <div class="flex items-center gap-3 mt-2 text-xs text-slate-500">
+              <span v-if="agent.agentType" class="bg-white/5 px-1.5 py-0.5 rounded">{{ agent.agentType }}</span>
+              <span v-if="agent.version">v{{ agent.version }}</span>
+              <span>{{ agent.totalCalls || 0 }} 次调用</span>
+            </div>
           </div>
         </div>
       </div>

@@ -51,6 +51,8 @@ public class OpenAiCompatibleChatModel implements ChatModel {
     private final double temperature;
     private final String apiKey;
     private volatile Boolean enableThinking;
+    /** 请求级 thinking 覆盖（优先于实例级 enableThinking），线程安全 */
+    private static final ThreadLocal<Boolean> REQUEST_THINKING = new ThreadLocal<>();
     private final Duration timeout = Duration.ofSeconds(120);
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -94,6 +96,22 @@ public class OpenAiCompatibleChatModel implements ChatModel {
 
     public void setEnableThinking(Boolean enableThinking) {
         this.enableThinking = enableThinking;
+    }
+
+    /** 设置当前请求的 thinking 参数（优先于实例级配置） */
+    public static void setRequestThinking(Boolean thinking) {
+        REQUEST_THINKING.set(thinking);
+    }
+
+    /** 清除当前请求的 thinking 参数 */
+    public static void clearRequestThinking() {
+        REQUEST_THINKING.remove();
+    }
+
+    /** 获取生效的 thinking 配置（请求级优先，其次实例级） */
+    private Boolean getEffectiveThinking() {
+        Boolean requestThinking = REQUEST_THINKING.get();
+        return requestThinking != null ? requestThinking : this.enableThinking;
     }
 
     @Override
@@ -146,7 +164,7 @@ public class OpenAiCompatibleChatModel implements ChatModel {
         OpenAiCompatibleChatDto.Request req = buildRequest(apiMessages, apiTools, true);
 
         log.info("OpenAI compatible stream -> URL: {}, model: {}, stream: true, enableThinking: {}, tools: {}",
-                fullUrl, model, enableThinking, apiTools.size());
+                fullUrl, model, getEffectiveThinking(), apiTools.size());
 
         try {
             String requestBody = objectMapper.writeValueAsString(req);
@@ -205,7 +223,7 @@ public class OpenAiCompatibleChatModel implements ChatModel {
                             if (!thinkingDetected[0]) {
                                 thinkingDetected[0] = true;
                                 thinkingStartTime[0] = System.currentTimeMillis();
-                                log.warn("[SDK] ⚠️ 检测到思考模式(reasoning_content)！enableThinking={} 但模型仍在思考，这会导致延迟！", enableThinking);
+                                log.warn("[SDK] ⚠️ 检测到思考模式(reasoning_content)！enableThinking={} 但模型仍在思考，这会导致延迟！", getEffectiveThinking());
                             }
                             thinkingChunkCount[0]++;
                             if (thinkingChunkCount[0] % 20 == 0) {
@@ -607,6 +625,11 @@ public class OpenAiCompatibleChatModel implements ChatModel {
         }
         if (enableThinking != null) {
             req.setEnableThinking(enableThinking);
+        }
+        // 请求级 thinking 覆盖实例级配置
+        Boolean effectiveThinking = getEffectiveThinking();
+        if (effectiveThinking != null) {
+            req.setEnableThinking(effectiveThinking);
         }
         return req;
     }

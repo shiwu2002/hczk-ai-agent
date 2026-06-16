@@ -5,53 +5,47 @@ import com.hczk.hczkaiagentserver.entity.Agent;
 import com.hczk.hczkaiagentserver.enums.AgentStatus;
 import com.hczk.hczkaiagentserver.mapper.AgentMapper;
 import com.hczk.hczkaiagentserver.service.AgentService;
-import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
-import java.util.List;
+import java.time.LocalDateTime;
+import java.util.*;
 
 /**
  * 智能体服务实现类
  *
- * 提供智能体的增删改查功能。
- * 支持三种智能体类型：MODEL（绑定模型）、SKILL（绑定Skill配置包）、ENDPOINT（转发外部地址）
+ * 提供智能体的注册、管理和健康检测功能。
+ * 每个注册的智能体必须实现 healthEndpoint 和 chatEndpoint 接口，
+ * 平台通过这些接口统一监控和调用。
  */
 @Service
-@RequiredArgsConstructor
+@Slf4j
 public class AgentServiceImpl implements AgentService {
 
-    /** 智能体数据访问 */
     private final AgentMapper agentMapper;
+    private final RestTemplate healthRestTemplate;
 
-    /**
-     * 获取所有智能体列表
-     *
-     * @return 智能体列表
-     */
+    public AgentServiceImpl(AgentMapper agentMapper) {
+        this.agentMapper = agentMapper;
+        var requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(3000);
+        requestFactory.setReadTimeout(3000);
+        this.healthRestTemplate = new RestTemplate(requestFactory);
+    }
+
     @Override
     public List<Agent> getAllAgents() {
         return agentMapper.selectList(null);
     }
 
-    /**
-     * 根据用户ID获取智能体列表
-     *
-     * @param userId 用户ID
-     * @return 该用户创建的智能体列表
-     */
     @Override
     public List<Agent> getAgentsByUserId(Long userId) {
         return agentMapper.selectList(new LambdaQueryWrapper<Agent>().eq(Agent::getUserId, userId));
     }
 
-    /**
-     * 根据ID获取智能体
-     *
-     * @param id 智能体ID
-     * @return 智能体实体
-     * @throws RuntimeException 智能体不存在
-     */
     @Override
     public Agent getAgentById(Long id) {
         Agent agent = agentMapper.selectById(id);
@@ -61,78 +55,27 @@ public class AgentServiceImpl implements AgentService {
         return agent;
     }
 
-    /**
-     * 创建智能体
-     *
-     * 校验规则：
-     * - userId和name必填
-     * - 默认启用（status=0），防止Jackson反序列化覆盖Java默认值
-     * - 默认类型为MODEL
-     * - MODEL类型必须绑定modelId
-     * - SKILL类型必须绑定skillId
-     * - ENDPOINT类型必须配置endpoint地址
-     *
-     * @param agent 智能体实体
-     * @return 创建后的智能体（含自增id）
-     * @throws IllegalArgumentException 参数校验失败
-     */
     @Override
     @Transactional
     public Agent createAgent(Agent agent) {
-        if (agent.getUserId() == null) {
-            throw new IllegalArgumentException("user_id 不能为空");
-        }
         if (agent.getName() == null || agent.getName().trim().isEmpty()) {
             throw new IllegalArgumentException("智能体名称不能为空");
         }
+        if (agent.getHealthEndpoint() == null || agent.getHealthEndpoint().trim().isEmpty()) {
+            throw new IllegalArgumentException("健康检测接口地址不能为空");
+        }
+        if (agent.getChatEndpoint() == null || agent.getChatEndpoint().trim().isEmpty()) {
+            throw new IllegalArgumentException("对话接口地址不能为空");
+        }
 
-        // 确保新建智能体默认启用
         if (agent.getStatus() == null) {
             agent.setStatus(AgentStatus.ACTIVE);
-        }
-
-        // 默认类型为MODEL
-        String agentType = agent.getAgentType();
-        if (agentType == null) {
-            agentType = "MODEL";
-            agent.setAgentType(agentType);
-        }
-
-        // 根据类型验证必填字段
-        switch (agentType) {
-            case "MODEL":
-                if (agent.getModelId() == null) {
-                    throw new IllegalArgumentException("MODEL 类型智能体必须绑定模型");
-                }
-                break;
-            case "SKILL":
-                if (agent.getSkillId() == null || agent.getSkillId().trim().isEmpty()) {
-                    throw new IllegalArgumentException("SKILL 类型智能体必须绑定 Skill");
-                }
-                break;
-            case "ENDPOINT":
-                if (agent.getEndpoint() == null || agent.getEndpoint().trim().isEmpty()) {
-                    throw new IllegalArgumentException("ENDPOINT 类型智能体必须配置 Endpoint 地址");
-                }
-                break;
-            default:
-                throw new IllegalArgumentException("未知智能体类型: " + agentType);
         }
 
         agentMapper.insert(agent);
         return agent;
     }
 
-    /**
-     * 更新智能体配置
-     *
-     * 根据智能体类型更新对应字段，其他类型字段置空
-     * 不更新status字段，状态变更通过toggleStatus接口操作
-     *
-     * @param id    智能体ID
-     * @param agent 更新数据
-     * @return 更新后的智能体
-     */
     @Override
     @Transactional
     public Agent updateAgent(Long id, Agent agent) {
@@ -140,49 +83,25 @@ public class AgentServiceImpl implements AgentService {
         existing.setName(agent.getName());
         existing.setDescription(agent.getDescription());
         existing.setAgentType(agent.getAgentType());
-
-        // 根据类型更新对应字段，其他类型字段置空
-        String agentType = agent.getAgentType();
-        if ("MODEL".equals(agentType)) {
-            existing.setModelId(agent.getModelId());
-            existing.setSkillId(null);
-            existing.setEndpoint(null);
-            existing.setEndpointAuthHeader(null);
-        } else if ("SKILL".equals(agentType)) {
-            existing.setSkillId(agent.getSkillId());
-            existing.setModelId(null);
-            existing.setEndpoint(null);
-            existing.setEndpointAuthHeader(null);
-        } else if ("ENDPOINT".equals(agentType)) {
-            existing.setEndpoint(agent.getEndpoint());
-            existing.setEndpointAuthHeader(agent.getEndpointAuthHeader());
-            existing.setModelId(null);
-            existing.setSkillId(null);
-        }
+        existing.setHealthEndpoint(agent.getHealthEndpoint());
+        existing.setChatEndpoint(agent.getChatEndpoint());
+        existing.setDocumentEndpoint(agent.getDocumentEndpoint());
+        existing.setInfoEndpoint(agent.getInfoEndpoint());
+        existing.setStreamEndpoint(agent.getStreamEndpoint());
+        existing.setHistoryEndpoint(agent.getHistoryEndpoint());
+        existing.setAuthHeader(agent.getAuthHeader());
+        existing.setVersion(agent.getVersion());
 
         agentMapper.updateById(existing);
         return existing;
     }
 
-    /**
-     * 删除智能体
-     *
-     * @param id 智能体ID
-     */
     @Override
     @Transactional
     public void deleteAgent(Long id) {
         agentMapper.deleteById(id);
     }
 
-    /**
-     * 切换智能体启停状态
-     *
-     * ACTIVE(0) ↔ INACTIVE(1)
-     *
-     * @param id 智能体ID
-     * @return 更新后的智能体
-     */
     @Override
     @Transactional
     public Agent toggleStatus(Long id) {
@@ -190,5 +109,152 @@ public class AgentServiceImpl implements AgentService {
         agent.setStatus(agent.getStatus() == AgentStatus.ACTIVE ? AgentStatus.INACTIVE : AgentStatus.ACTIVE);
         agentMapper.updateById(agent);
         return agent;
+    }
+
+    @Override
+    public Map<Long, Map<String, Object>> checkAllAgentsHealth() {
+        List<Agent> agents = getAllAgents();
+        Map<Long, Map<String, Object>> result = new LinkedHashMap<>();
+
+        for (Agent agent : agents) {
+            try {
+                Map<String, Object> health = checkAgentHealthByUrl(agent);
+                health.put("lastCheck", LocalDateTime.now().toString());
+                result.put(agent.getId(), health);
+            } catch (Exception e) {
+                log.error("检测智能体健康状态异常: agentId={}, error={}", agent.getId(), e.getMessage());
+                Map<String, Object> health = buildHealthResult(false, null, "检测异常: " + e.getMessage());
+                health.put("lastCheck", LocalDateTime.now().toString());
+                result.put(agent.getId(), health);
+            }
+        }
+
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> checkAgentHealth(Long id) {
+        Agent agent = getAgentById(id);
+        Map<String, Object> health = checkAgentHealthByUrl(agent);
+        health.put("lastCheck", LocalDateTime.now().toString());
+        return health;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> getAgentInfo(Long id) {
+        Agent agent = getAgentById(id);
+        String infoUrl = agent.getInfoEndpoint();
+        if (infoUrl == null || infoUrl.trim().isEmpty()) {
+            // 没有 infoEndpoint，返回数据库中的基本信息
+            Map<String, Object> info = new LinkedHashMap<>();
+            info.put("name", agent.getName());
+            info.put("version", agent.getVersion());
+            info.put("description", agent.getDescription());
+            info.put("capabilities", Map.of(
+                "knowledge_retrieval", false,
+                "tool_calling", false,
+                "multi_turn", true,
+                "streaming", agent.getStreamEndpoint() != null && !agent.getStreamEndpoint().trim().isEmpty(),
+                "thinking", false
+            ));
+            info.put("_source", "database");
+            return info;
+        }
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            if (agent.getAuthHeader() != null && !agent.getAuthHeader().trim().isEmpty()) {
+                headers.set("Authorization", agent.getAuthHeader());
+            }
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            HttpEntity<Void> request = new HttpEntity<>(headers);
+            ResponseEntity<Map> response = healthRestTemplate.exchange(infoUrl, HttpMethod.GET, request, Map.class);
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                Map<String, Object> result = new LinkedHashMap<>(response.getBody());
+                result.put("_source", "endpoint");
+                return result;
+            }
+            return Map.of("error", "获取元信息失败", "_source", "endpoint");
+        } catch (Exception e) {
+            log.warn("获取智能体元信息失败: agentId={}, infoEndpoint={}, error={}", agent.getId(), infoUrl, e.getMessage());
+            Map<String, Object> info = new LinkedHashMap<>();
+            info.put("name", agent.getName());
+            info.put("version", agent.getVersion());
+            info.put("description", agent.getDescription());
+            info.put("_source", "database_fallback");
+            info.put("_error", e.getMessage());
+            return info;
+        }
+    }
+
+    /**
+     * 通过智能体的 healthEndpoint 检测健康状态
+     * GET 请求 healthEndpoint，解析返回的 JSON：
+     * { "status": "ok"|"degraded"|其他, "version": "...", "uptime": ..., "components": {...} }
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> checkAgentHealthByUrl(Agent agent) {
+        String healthUrl = agent.getHealthEndpoint();
+        if (healthUrl == null || healthUrl.trim().isEmpty()) {
+            return buildHealthResult(false, null, "健康检测接口未配置");
+        }
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            if (agent.getAuthHeader() != null && !agent.getAuthHeader().trim().isEmpty()) {
+                headers.set("Authorization", agent.getAuthHeader());
+            }
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            HttpEntity<Void> request = new HttpEntity<>(headers);
+            long start = System.currentTimeMillis();
+            ResponseEntity<Map> response = healthRestTemplate.exchange(healthUrl, HttpMethod.GET, request, Map.class);
+            long latency = System.currentTimeMillis() - start;
+
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                return buildHealthResult(false, latency, "接口响应异常: HTTP " + response.getStatusCode());
+            }
+
+            Map<String, Object> body = response.getBody();
+            if (body == null) {
+                return buildHealthResult(false, latency, "接口返回空响应");
+            }
+
+            // 解析返回的 status 字段
+            Object statusObj = body.get("status");
+            String status = statusObj != null ? statusObj.toString() : null;
+            boolean online = "ok".equals(status) || "degraded".equals(status);
+            String message = switch (status) {
+                case "ok" -> "运行正常";
+                case "degraded" -> "部分降级运行中";
+                case null -> "状态未知";
+                default -> "状态: " + status;
+            };
+
+            Map<String, Object> result = buildHealthResult(online, latency, message);
+            result.put("runtimeStatus", status);
+            // 透传智能体返回的详细信息
+            if (body.get("version") != null) result.put("version", body.get("version"));
+            if (body.get("uptime") != null) result.put("uptime", body.get("uptime"));
+            if (body.get("components") != null) result.put("components", body.get("components"));
+            if (body.get("runtime") != null) result.put("runtime", body.get("runtime"));
+
+            return result;
+        } catch (Exception e) {
+            log.warn("智能体健康检测失败: agentId={}, healthEndpoint={}, error={}",
+                    agent.getId(), healthUrl, e.getMessage());
+            return buildHealthResult(false, null, "连接失败: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> buildHealthResult(boolean online, Long latencyMs, String message) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("online", online);
+        result.put("latencyMs", latencyMs);
+        result.put("message", message);
+        return result;
     }
 }

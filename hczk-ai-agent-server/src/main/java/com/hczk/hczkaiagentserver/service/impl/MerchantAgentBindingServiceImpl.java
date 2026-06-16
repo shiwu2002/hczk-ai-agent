@@ -22,33 +22,36 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
     @Override
     @Transactional
     public MerchantAgentBinding createBinding(MerchantAgentBinding binding) {
-        Optional<MerchantAgentBinding> existing = findByUserId(binding.getUserId());
+        Optional<MerchantAgentBinding> existing = findByMerchantId(binding.getMerchantId());
         if (existing.isPresent()) {
-            throw new RuntimeException("用户已存在绑定: " + binding.getUserId());
+            throw new RuntimeException("商家已存在绑定: " + binding.getMerchantId());
         }
-        
-        if (binding.getSkillId() == null && binding.getAgentEndpoint() == null) {
-            throw new RuntimeException("必须提供 skill_id 或 agent_endpoint");
+
+        // 至少需要一种绑定方式：agentId、skillId 或 agentEndpoint
+        if (binding.getAgentId() == null && binding.getSkillId() == null && binding.getAgentEndpoint() == null) {
+            throw new RuntimeException("必须提供 agent_id、skill_id 或 agent_endpoint");
         }
-        
+
+        // skillId 和 agentEndpoint 不能同时提供
         if (binding.getSkillId() != null && binding.getAgentEndpoint() != null) {
             throw new RuntimeException("skill_id 和 agent_endpoint 不能同时提供");
         }
-        
+
         bindingMapper.insert(binding);
-        log.info("创建用户绑定: userId={}, skillId={}, endpoint={}", 
-                binding.getUserId(), binding.getSkillId(), binding.getAgentEndpoint());
+        log.info("创建商家绑定: merchantId={}, agentId={}, skillId={}, endpoint={}, apiKeyId={}",
+                binding.getMerchantId(), binding.getAgentId(), binding.getSkillId(),
+                binding.getAgentEndpoint(), binding.getApiKeyId());
         return binding;
     }
 
     @Override
     @Transactional
-    public MerchantAgentBinding updateBinding(Long userId, MerchantAgentBinding binding) {
-        Optional<MerchantAgentBinding> existing = findByUserId(userId);
+    public MerchantAgentBinding updateBinding(String merchantId, MerchantAgentBinding binding) {
+        Optional<MerchantAgentBinding> existing = findByMerchantId(merchantId);
         if (existing.isEmpty()) {
-            throw new RuntimeException("用户绑定不存在: " + userId);
+            throw new RuntimeException("商家绑定不存在: " + merchantId);
         }
-        
+
         MerchantAgentBinding update = existing.get();
         if (binding.getSkillId() != null) {
             update.setSkillId(binding.getSkillId());
@@ -72,27 +75,27 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
         if (binding.getToolsConfig() != null) {
             update.setToolsConfig(binding.getToolsConfig());
         }
-        
+
         bindingMapper.updateById(update);
-        log.info("更新用户绑定: userId={}", userId);
+        log.info("更新商家绑定: merchantId={}", merchantId);
         return update;
     }
 
     @Override
     @Transactional
-    public void deleteBinding(Long userId) {
-        Optional<MerchantAgentBinding> existing = findByUserId(userId);
+    public void deleteBinding(String merchantId) {
+        Optional<MerchantAgentBinding> existing = findByMerchantId(merchantId);
         if (existing.isEmpty()) {
-            throw new RuntimeException("用户绑定不存在: " + userId);
+            throw new RuntimeException("商家绑定不存在: " + merchantId);
         }
         bindingMapper.deleteById(existing.get().getId());
-        log.info("删除用户绑定: userId={}", userId);
+        log.info("删除商家绑定: merchantId={}", merchantId);
     }
 
     @Override
-    public Optional<MerchantAgentBinding> findByUserId(Long userId) {
+    public Optional<MerchantAgentBinding> findByMerchantId(String merchantId) {
         LambdaQueryWrapper<MerchantAgentBinding> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(MerchantAgentBinding::getUserId, userId);
+        wrapper.eq(MerchantAgentBinding::getMerchantId, merchantId);
         return Optional.ofNullable(bindingMapper.selectOne(wrapper));
     }
 
@@ -103,15 +106,15 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
 
     @Override
     @Transactional
-    public MerchantAgentBinding toggleBinding(Long userId, boolean enabled) {
-        Optional<MerchantAgentBinding> existing = findByUserId(userId);
+    public MerchantAgentBinding toggleBinding(String merchantId, boolean enabled) {
+        Optional<MerchantAgentBinding> existing = findByMerchantId(merchantId);
         if (existing.isEmpty()) {
-            throw new RuntimeException("用户绑定不存在: " + userId);
+            throw new RuntimeException("商家绑定不存在: " + merchantId);
         }
         MerchantAgentBinding binding = existing.get();
         binding.setEnabled(enabled);
         bindingMapper.updateById(binding);
-        log.info("切换用户绑定状态: userId={}, enabled={}", userId, enabled);
+        log.info("切换商家绑定状态: merchantId={}, enabled={}", merchantId, enabled);
         return binding;
     }
 }

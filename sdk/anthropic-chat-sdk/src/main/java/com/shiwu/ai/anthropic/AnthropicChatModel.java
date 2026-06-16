@@ -50,6 +50,8 @@ public class AnthropicChatModel implements ChatModel {
     private final double temperature;
     private final String apiKey;
     private volatile Boolean enableThinking;
+    /** 请求级 thinking 覆盖（优先于实例级 enableThinking），线程安全 */
+    private static final ThreadLocal<Boolean> REQUEST_THINKING = new ThreadLocal<>();
     private final Duration timeout = Duration.ofSeconds(120);
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -88,6 +90,22 @@ public class AnthropicChatModel implements ChatModel {
 
     public void setEnableThinking(Boolean enableThinking) {
         this.enableThinking = enableThinking;
+    }
+
+    /** 设置当前请求的 thinking 参数（优先于实例级配置） */
+    public static void setRequestThinking(Boolean thinking) {
+        REQUEST_THINKING.set(thinking);
+    }
+
+    /** 清除当前请求的 thinking 参数 */
+    public static void clearRequestThinking() {
+        REQUEST_THINKING.remove();
+    }
+
+    /** 获取生效的 thinking 配置（请求级优先，其次实例级） */
+    private Boolean getEffectiveThinking() {
+        Boolean requestThinking = REQUEST_THINKING.get();
+        return requestThinking != null ? requestThinking : this.enableThinking;
     }
 
     @Override
@@ -136,7 +154,7 @@ public class AnthropicChatModel implements ChatModel {
         AnthropicChatDto.Request req = buildRequest(messages, apiTools, true);
 
         log.info("Anthropic stream -> URL: {}, model: {}, stream: true, enableThinking: {}, tools: {}",
-                fullUrl, model, enableThinking, apiTools.size());
+                fullUrl, model, getEffectiveThinking(), apiTools.size());
 
         try {
             String requestBody = objectMapper.writeValueAsString(req);
@@ -192,7 +210,7 @@ public class AnthropicChatModel implements ChatModel {
                             if (!thinkingDetected[0]) {
                                 thinkingDetected[0] = true;
                                 thinkingStartTime[0] = System.currentTimeMillis();
-                                log.warn("[SDK] ⚠️ Anthropic检测到思考模式(thinking block)！enableThinking={} 但模型仍在思考，这会导致延迟！", enableThinking);
+                                log.warn("[SDK] ⚠️ Anthropic检测到思考模式(thinking block)！enableThinking={} 但模型仍在思考，这会导致延迟！", getEffectiveThinking());
                             }
                             return Flux.empty();
                         }
@@ -554,10 +572,19 @@ public class AnthropicChatModel implements ChatModel {
             req.setToolChoice(toolChoice);
         }
 
-        if (enableThinking != null && !enableThinking) {
-            Map<String, Object> thinking = new LinkedHashMap<>();
-            thinking.put("type", "disabled");
-            req.setThinking(thinking);
+        // 请求级 thinking 优先于实例级配置
+        Boolean effectiveThinking = getEffectiveThinking();
+        if (effectiveThinking != null) {
+            if (effectiveThinking) {
+                Map<String, Object> thinking = new LinkedHashMap<>();
+                thinking.put("type", "enabled");
+                thinking.put("budget_tokens", maxTokens);
+                req.setThinking(thinking);
+            } else {
+                Map<String, Object> thinking = new LinkedHashMap<>();
+                thinking.put("type", "disabled");
+                req.setThinking(thinking);
+            }
         }
 
         return req;
@@ -583,10 +610,19 @@ public class AnthropicChatModel implements ChatModel {
             req.setToolChoice(toolChoice);
         }
 
-        if (enableThinking != null && !enableThinking) {
-            Map<String, Object> thinking = new LinkedHashMap<>();
-            thinking.put("type", "disabled");
-            req.setThinking(thinking);
+        // 请求级 thinking 优先于实例级配置
+        Boolean effectiveThinking = getEffectiveThinking();
+        if (effectiveThinking != null) {
+            if (effectiveThinking) {
+                Map<String, Object> thinking = new LinkedHashMap<>();
+                thinking.put("type", "enabled");
+                thinking.put("budget_tokens", maxTokens);
+                req.setThinking(thinking);
+            } else {
+                Map<String, Object> thinking = new LinkedHashMap<>();
+                thinking.put("type", "disabled");
+                req.setThinking(thinking);
+            }
         }
 
         return req;

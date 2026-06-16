@@ -77,18 +77,25 @@ CREATE TABLE ai_models (
 
 -- ------------------------------
 -- 表3：智能体表 agents
--- 用户创建的自定义AI智能体，绑定模型与归属用户
+-- 注册的容器智能体，提供健康检测和对话接口
 -- ------------------------------
 DROP TABLE IF EXISTS agents;
 CREATE TABLE agents (
     id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
     PRIMARY KEY,
     name                VARCHAR(100)   NOT NULL COMMENT '智能体名称',
-    description         TEXT                COMMENT '智能体功能描述、提示词配置',
-    model_id            BIGINT         NOT NULL COMMENT '关联模型ID(ai_models.id)',
-    user_id             BIGINT         NOT NULL COMMENT '归属用户ID(users.id)',
+    description         TEXT                COMMENT '智能体功能描述',
+    agent_type          VARCHAR(50)         COMMENT '智能体类型标识（自定义，如 customer_service）',
+    health_endpoint     VARCHAR(256)   NOT NULL COMMENT '健康检测接口地址（GET 请求）',
+    chat_endpoint       VARCHAR(256)   NOT NULL COMMENT '对话接口地址（POST 请求）',
+    stream_endpoint     VARCHAR(256)        COMMENT '流式对话接口地址（POST SSE，可选）',
+    document_endpoint   VARCHAR(256)        COMMENT '文档上传接口地址（POST multipart/form-data，可选）',
+    info_endpoint       VARCHAR(256)        COMMENT '智能体元信息接口地址（GET，可选）',
+    history_endpoint    VARCHAR(256)        COMMENT '会话历史接口地址（GET/DELETE，可选）',
+    auth_header         VARCHAR(256)        COMMENT '调用接口时的认证头',
+    version             VARCHAR(32)         COMMENT '智能体服务版本号',
+    user_id             BIGINT              COMMENT '注册用户ID(users.id)',
     status              TINYINT        NOT NULL DEFAULT 0 COMMENT '状态：0启用 / 1停用',
-    agent_type          VARCHAR(50)         COMMENT '智能体业务类型',
     total_calls         BIGINT         NOT NULL DEFAULT 0 COMMENT '累计调用次数',
     total_tokens        BIGINT         NOT NULL DEFAULT 0 COMMENT '累计消耗Token',
     avg_latency         INT                 COMMENT '平均响应延迟(毫秒ms)',
@@ -97,13 +104,9 @@ CREATE TABLE agents (
 
     -- 索引
     KEY idx_user_id (user_id),
-    KEY idx_model_id (model_id),
     KEY idx_status (status),
-    KEY idx_agent_type (agent_type),
-    -- 外键约束
-    CONSTRAINT fk_agent_model FOREIGN KEY (model_id) REFERENCES ai_models(id) ON DELETE RESTRICT,
-    CONSTRAINT fk_agent_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户自定义智能体表';
+    KEY idx_agent_type (agent_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='容器智能体注册表';
 
 -- ------------------------------
 -- 表4：用户API密钥表 api_keys
@@ -260,13 +263,14 @@ CREATE TABLE skill (
 
 -- ------------------------------
 -- 表10：商家智能体绑定表 merchant_agent_binding
--- 核心路由表，支持 Skill 模式和 Endpoint 模式
+-- 核心路由表，支持平台智能体绑定、Skill 模式和 Endpoint 模式
 -- ------------------------------
 DROP TABLE IF EXISTS merchant_agent_binding;
 CREATE TABLE merchant_agent_binding (
     id                      BIGINT AUTO_INCREMENT COMMENT '主键ID'
     PRIMARY KEY,
     merchant_id             VARCHAR(64)    NOT NULL COMMENT '商家ID',
+    agent_id                BIGINT              COMMENT '绑定的平台注册智能体ID（优先级最高）',
     skill_id                VARCHAR(64)         COMMENT 'Skill模式：绑定的技能包ID',
     agent_endpoint          VARCHAR(256)        COMMENT 'Endpoint模式：定制智能体地址',
     agent_auth_header       VARCHAR(256)        COMMENT 'Endpoint模式：认证头',
@@ -279,6 +283,7 @@ CREATE TABLE merchant_agent_binding (
     updated_at              DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
     UNIQUE KEY uk_merchant (merchant_id),
+    KEY idx_agent_id (agent_id),
     KEY idx_skill_id (skill_id),
     KEY idx_enabled (enabled)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家智能体绑定表';

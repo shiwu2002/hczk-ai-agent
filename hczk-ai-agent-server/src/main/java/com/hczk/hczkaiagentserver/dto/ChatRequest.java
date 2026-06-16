@@ -28,6 +28,9 @@ public class ChatRequest {
     /** 是否流式响应 */
     private Boolean stream = true;
 
+    /** 是否启用思考模式（请求级覆盖模型配置） */
+    private Boolean enableThinking;
+
     /** OpenAI 兼容格式的消息列表（外部 API 调用格式） */
     private List<OpenAiMessage> messages;
 
