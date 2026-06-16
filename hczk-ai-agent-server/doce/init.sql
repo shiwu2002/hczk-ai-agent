@@ -93,7 +93,7 @@ CREATE TABLE agents (
     history_endpoint    VARCHAR(256)        COMMENT '会话历史接口地址（GET/DELETE，可选）',
     auth_header         VARCHAR(256)        COMMENT '调用接口时的认证头',
     version             VARCHAR(32)         COMMENT '智能体服务版本号',
-    user_id             BIGINT              COMMENT '注册用户ID(users.id)',
+    user_id             VARCHAR(32)         COMMENT '注册用户ID(users.user_id)',
     status              TINYINT        NOT NULL DEFAULT 0 COMMENT '状态：0启用 / 1停用',
     total_calls         BIGINT         NOT NULL DEFAULT 0 COMMENT '累计调用次数',
     total_tokens        BIGINT         NOT NULL DEFAULT 0 COMMENT '累计消耗Token',
@@ -215,7 +215,7 @@ DROP TABLE IF EXISTS chat_logs;
 CREATE TABLE chat_logs (
     id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
     PRIMARY KEY,
-    user_id             BIGINT         NOT NULL COMMENT '用户ID(users.id)',
+    user_id             VARCHAR(32)    NOT NULL COMMENT '用户ID(users.user_id)',
     api_key_id          BIGINT              COMMENT '关联API Key ID(api_keys.id)',
     model_id            BIGINT              COMMENT '使用的模型ID(ai_models.id)',
     model_name          VARCHAR(100)        COMMENT '模型名称',
@@ -234,7 +234,7 @@ CREATE TABLE chat_logs (
     KEY idx_model_id (model_id),
     KEY idx_created_at (created_at),
     KEY idx_status (status),
-    CONSTRAINT fk_chatlog_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_chatlog_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='对话内容记录表';
 
 -- ------------------------------
