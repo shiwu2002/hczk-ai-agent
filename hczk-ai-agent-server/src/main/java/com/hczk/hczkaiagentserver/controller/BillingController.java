@@ -39,7 +39,7 @@ public class BillingController {
 
     /** 查询指定用户的账单记录（管理员） */
     @GetMapping("/records/{userId}")
-    public Result<List<BillingRecord>> getUserBillingRecords(@PathVariable Long userId) {
+    public Result<List<BillingRecord>> getUserBillingRecords(@PathVariable String userId) {
         return Result.success(billingService.getUserBillingRecords(userId));
     }
 
@@ -51,7 +51,7 @@ public class BillingController {
 
     /** 管理员给用户充值 */
     @PostMapping("/recharge")
-    public Result<RechargeRecord> recharge(@RequestParam Long userId,
+    public Result<RechargeRecord> recharge(@RequestParam String userId,
                                            @RequestParam BigDecimal amount,
                                            @RequestParam String paymentMethod) {
         return Result.success(billingService.recharge(userId, amount, paymentMethod));
@@ -59,7 +59,7 @@ public class BillingController {
 
     /** 查询用户余额 */
     @GetMapping("/balance/{userId}")
-    public Result<BigDecimal> getUserBalance(@PathVariable Long userId) {
+    public Result<BigDecimal> getUserBalance(@PathVariable String userId) {
         return Result.success(billingService.getUserBalance(userId));
     }
 
@@ -67,7 +67,7 @@ public class BillingController {
     @PostMapping("/self-recharge")
     public Result<RechargeRecord> selfRecharge(@RequestParam BigDecimal amount,
                                                @RequestParam String paymentMethod) {
-        Long userId = resolveCurrentUserId();
+        String userId = resolveCurrentUserId();
         if (userId == null) {
             return Result.error(401, "未登录");
         }
@@ -77,7 +77,7 @@ public class BillingController {
     /** 用户查询自己的全部账单明细 */
     @GetMapping("/my-records")
     public Result<List<BillingRecord>> myRecords() {
-        Long userId = resolveCurrentUserId();
+        String userId = resolveCurrentUserId();
         if (userId == null) {
             return Result.error(401, "未登录");
         }
@@ -87,7 +87,7 @@ public class BillingController {
     /** 用户查询自己的扣费明细（仅TOKEN_USAGE类型） */
     @GetMapping("/my-usage")
     public Result<List<BillingRecord>> myUsage() {
-        Long userId = resolveCurrentUserId();
+        String userId = resolveCurrentUserId();
         if (userId == null) {
             return Result.error(401, "未登录");
         }
@@ -102,7 +102,7 @@ public class BillingController {
     /** 用户查询自己的充值明细（仅RECHARGE类型） */
     @GetMapping("/my-recharges")
     public Result<List<BillingRecord>> myRecharges() {
-        Long userId = resolveCurrentUserId();
+        String userId = resolveCurrentUserId();
         if (userId == null) {
             return Result.error(401, "未登录");
         }
@@ -156,7 +156,7 @@ public class BillingController {
      * 从Security上下文解析当前用户ID
      * 兼容API Key认证（details中取userId）和JWT认证（principal中取username再查库）
      */
-    private Long resolveCurrentUserId() {
+    private String resolveCurrentUserId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null) return null;
 
@@ -164,7 +164,7 @@ public class BillingController {
         if (auth.getDetails() instanceof Map) {
             Map<?, ?> details = (Map<?, ?>) auth.getDetails();
             Object userId = details.get("userId");
-            if (userId instanceof Long) return (Long) userId;
+            if (userId instanceof String) return (String) userId;
         }
 
         // JWT 认证 - principal 是 username
@@ -173,7 +173,7 @@ public class BillingController {
             String username = (String) principal;
             User user = userMapper.selectOne(
                     new LambdaQueryWrapper<User>().eq(User::getUsername, username));
-            return user != null ? user.getId() : null;
+            return user != null ? user.getUserId() : null;
         }
         return null;
     }

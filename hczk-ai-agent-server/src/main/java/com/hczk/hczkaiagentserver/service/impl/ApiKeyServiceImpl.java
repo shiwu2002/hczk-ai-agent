@@ -38,11 +38,11 @@ public class ApiKeyServiceImpl implements ApiKeyService {
     /**
      * 根据用户ID获取API Key列表
      *
-     * @param userId 用户ID
+     * @param userId 用户ID（雪花ID）
      * @return 该用户的API Key列表
      */
     @Override
-    public List<ApiKey> getApiKeysByUserId(Long userId) {
+    public List<ApiKey> getApiKeysByUserId(String userId) {
         return apiKeyMapper.selectList(new LambdaQueryWrapper<ApiKey>().eq(ApiKey::getUserId, userId));
     }
 
@@ -52,7 +52,7 @@ public class ApiKeyServiceImpl implements ApiKeyService {
      * 自动生成sk-hczk-前缀的密钥串，设置统一Token单价和绑定模型列表。
      * 新建Key默认可用（status=0）。
      *
-     * @param userId    归属用户ID
+     * @param userId    归属用户ID（雪花ID）
      * @param name      密钥备注名称
      * @param unitPrice 统一Token单价（元/千Tokens），null时默认0（免费）
      * @param modelIds  绑定的模型ID列表
@@ -60,7 +60,7 @@ public class ApiKeyServiceImpl implements ApiKeyService {
      */
     @Override
     @Transactional
-    public ApiKey createApiKey(Long userId, String name, BigDecimal unitPrice, List<Long> modelIds) {
+    public ApiKey createApiKey(String userId, String name, BigDecimal unitPrice, List<Long> modelIds) {
         // 校验：每个用户只能拥有一个API Key
         Long existingCount = apiKeyMapper.selectCount(
                 new LambdaQueryWrapper<ApiKey>().eq(ApiKey::getUserId, userId));
@@ -123,22 +123,6 @@ public class ApiKeyServiceImpl implements ApiKeyService {
     @Transactional
     public void deleteApiKey(Long id) {
         apiKeyMapper.deleteById(id);
-    }
-
-    /**
-     * 根据密钥串查询API Key（不校验状态）
-     *
-     * @param apiKey 密钥串
-     * @return API Key实体
-     * @throws RuntimeException API Key不存在
-     */
-    @Override
-    public ApiKey getApiKeyByKey(String apiKey) {
-        ApiKey key = apiKeyMapper.selectOne(new LambdaQueryWrapper<ApiKey>().eq(ApiKey::getApiKey, apiKey));
-        if (key == null) {
-            throw new RuntimeException("API Key 不存在");
-        }
-        return key;
     }
 
     /**

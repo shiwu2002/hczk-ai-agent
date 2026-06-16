@@ -187,18 +187,6 @@
     background: var(--color-text-muted);
   }
 
-  .status-dot.warning {
-    background: var(--color-warning);
-    box-shadow: 0 0 8px var(--color-warning);
-  }
-
-  .text-gradient {
-    background: linear-gradient(135deg, var(--color-accent-primary), var(--color-accent-secondary));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
   .glow-border {
     position: relative;
   }

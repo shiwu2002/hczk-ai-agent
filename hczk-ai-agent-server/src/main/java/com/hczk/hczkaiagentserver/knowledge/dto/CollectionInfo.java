@@ -13,6 +13,6 @@ public class CollectionInfo {
     private String agentId;
     private String collectionName;
     private String ownerType;
-    private Long ownerId;
+    private String ownerId;
     private String ownerName;
 }

@@ -57,12 +57,12 @@ public class UserController {
     /**
      * 更新用户信息
      *
-     * @param id      用户ID
+     * @param id      用户ID（雪花ID）
      * @param userDTO 用户更新数据
      * @return 更新后的用户信息
      */
     @PutMapping("/{id}")
-    public Result<User> updateUser(@PathVariable Long id, @RequestBody UserDTO userDTO) {
+    public Result<User> updateUser(@PathVariable String id, @RequestBody UserDTO userDTO) {
         return Result.success(userService.updateUser(id, userDTO));
     }
 
@@ -70,7 +70,7 @@ public class UserController {
      * 获取指定用户的使用明细（单次调用记录）
      */
     @GetMapping("/{id}/usage")
-    public Result<List<BillingRecord>> getUserUsage(@PathVariable Long id) {
+    public Result<List<BillingRecord>> getUserUsage(@PathVariable String id) {
         List<BillingRecord> records = billingRecordMapper.selectList(
                 new LambdaQueryWrapper<BillingRecord>()
                         .eq(BillingRecord::getUserId, id)
@@ -83,7 +83,7 @@ public class UserController {
      * 获取指定用户的 API Key 列表
      */
     @GetMapping("/{id}/api-keys")
-    public Result<List<ApiKey>> getUserApiKeys(@PathVariable Long id) {
+    public Result<List<ApiKey>> getUserApiKeys(@PathVariable String id) {
         List<ApiKey> keys = apiKeyMapper.selectList(
                 new LambdaQueryWrapper<ApiKey>()
                         .eq(ApiKey::getUserId, id)

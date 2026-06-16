@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useApiStore } from '@/stores/api'
-import { Plug, MessageSquare, CheckCircle2, XCircle, Settings2, Send } from 'lucide-vue-next'
+import { MessageSquare, CheckCircle2, XCircle, Settings2, Send } from 'lucide-vue-next'
 
 const api = useApiStore()
 const loading = ref(false)

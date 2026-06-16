@@ -36,7 +36,6 @@ public class RedisCacheService {
     private final Random random = new Random();
 
     private static final String USER_BALANCE_PREFIX = "user:balance:";
-    private static final String USER_PREFIX = "user:";
     private static final String API_KEY_PREFIX = "apikey:";
     private static final String TOOLS_PREFIX = "tools:";
     private static final long CACHE_EXPIRE_HOURS = 24;
@@ -47,11 +46,11 @@ public class RedisCacheService {
 
     /**
      * 获取用户余额（优先从缓存）
-     * 
-     * @param userId 用户ID
+     *
+     * @param userId 用户ID（雪花ID）
      * @return 用户余额，用户不存在返回BigDecimal.ZERO
      */
-    public BigDecimal getUserBalance(Long userId) {
+    public BigDecimal getUserBalance(String userId) {
         String key = USER_BALANCE_PREFIX + userId;
         try {
             // 优先从Redis缓存读取
@@ -75,11 +74,11 @@ public class RedisCacheService {
 
     /**
      * 缓存用户余额
-     * 
-     * @param userId  用户ID
+     *
+     * @param userId  用户ID（雪花ID）
      * @param balance 余额
      */
-    public void cacheUserBalance(Long userId, BigDecimal balance) {
+    public void cacheUserBalance(String userId, BigDecimal balance) {
         try {
             String key = USER_BALANCE_PREFIX + userId;
             redisTemplate.opsForValue().set(key, balance.toString(), BALANCE_CACHE_EXPIRE_MINUTES, TimeUnit.MINUTES);
@@ -90,71 +89,15 @@ public class RedisCacheService {
 
     /**
      * 失效用户余额缓存
-     * 
-     * @param userId 用户ID
+     *
+     * @param userId 用户ID（雪花ID）
      */
-    public void invalidateUserBalance(Long userId) {
+    public void invalidateUserBalance(String userId) {
         try {
             String key = USER_BALANCE_PREFIX + userId;
             redisTemplate.delete(key);
         } catch (Exception e) {
             log.warn("Redis 删除用户余额缓存失败: userId={}, error={}", userId, e.getMessage());
-        }
-    }
-
-    /**
-     * 获取用户信息（优先从缓存）
-     * 
-     * @param userId 用户ID
-     * @return 用户实体，不存在返回null
-     */
-    public User getUser(Long userId) {
-        String key = USER_PREFIX + userId;
-        try {
-            // 优先从Redis缓存读取
-            Object cached = redisTemplate.opsForValue().get(key);
-            if (cached instanceof User) {
-                return (User) cached;
-            }
-        } catch (Exception e) {
-            // Redis故障降级到数据库查询
-            log.warn("Redis 获取用户失败: userId={}, error={}", userId, e.getMessage());
-        }
-
-        // 缓存未命中或Redis不可用，查询数据库并回填缓存
-        User user = userMapper.selectById(userId);
-        if (user != null) {
-            cacheUser(user);
-        }
-        return user;
-    }
-
-    /**
-     * 缓存用户信息
-     * 
-     * @param user 用户实体
-     */
-    public void cacheUser(User user) {
-        try {
-            String key = USER_PREFIX + user.getId();
-            redisTemplate.opsForValue().set(key, user, CACHE_EXPIRE_HOURS, TimeUnit.HOURS);
-        } catch (Exception e) {
-            log.warn("Redis 设置用户失败: userId={}, error={}", user.getId(), e.getMessage());
-        }
-    }
-
-    /**
-     * 失效用户缓存（包括余额）
-     * 
-     * @param userId 用户ID
-     */
-    public void invalidateUser(Long userId) {
-        try {
-            String key = USER_PREFIX + userId;
-            redisTemplate.delete(key);
-            invalidateUserBalance(userId);
-        } catch (Exception e) {
-            log.warn("Redis 删除用户缓存失败: userId={}, error={}", userId, e.getMessage());
         }
     }
 
@@ -198,36 +141,6 @@ public class RedisCacheService {
             redisTemplate.opsForValue().set(key, apiKey, CACHE_EXPIRE_HOURS, TimeUnit.HOURS);
         } catch (Exception e) {
             log.warn("Redis 设置 API Key 失败: keyId={}, error={}", apiKey.getId(), e.getMessage());
-        }
-    }
-
-    /**
-     * 失效API Key缓存
-     * 
-     * @param apiKey API Key字符串
-     */
-    public void invalidateApiKey(String apiKey) {
-        try {
-            String key = API_KEY_PREFIX + apiKey;
-            redisTemplate.delete(key);
-        } catch (Exception e) {
-            log.warn("Redis 删除 API Key 缓存失败: key={}, error={}", apiKey.substring(0, Math.min(10, apiKey.length())) + "...", e.getMessage());
-        }
-    }
-
-    /**
-     * 根据ID失效API Key缓存
-     * 
-     * @param apiKeyId API Key ID
-     */
-    public void invalidateApiKeyById(Long apiKeyId) {
-        try {
-            ApiKey apiKey = apiKeyMapper.selectById(apiKeyId);
-            if (apiKey != null) {
-                invalidateApiKey(apiKey.getApiKey());
-            }
-        } catch (Exception e) {
-            log.warn("Redis 删除 API Key 缓存失败: keyId={}, error={}", apiKeyId, e.getMessage());
         }
     }
 

@@ -1,7 +1,6 @@
 package com.hczk.hczkaiagentserver.service;
 
 import com.hczk.hczkaiagentserver.common.Result;
-import com.hczk.hczkaiagentserver.entity.ToolDefinition;
 import com.hczk.hczkaiagentserver.knowledge.controller.KnowledgeController;
 import com.hczk.hczkaiagentserver.knowledge.dto.*;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +23,7 @@ public class ToolExecuteService {
     /**
      * 执行内置工具
      * @param toolName 工具名称
-     * @param arguments 工具参数（需包含 agent_id 或 merchant_id 用于多租户隔离）
+     * @param arguments 工具参数（需包含 user_id 用于用户隔离）
      * @return 执行结果
      */
     @SuppressWarnings("unchecked")
@@ -46,10 +45,13 @@ public class ToolExecuteService {
         }
     }
 
-    /** 获取 agentId（兼容 merchant_id） */
+    /**
+     * 获取 agentId（雪花ID字符串）
+     * 优先取 user_id，兼容 agent_id
+     */
     private String getAgentId(Map<String, Object> args) {
-        if (args.containsKey("agent_id")) return (String) args.get("agent_id");
-        if (args.containsKey("merchant_id")) return (String) args.get("merchant_id");
+        if (args.containsKey("user_id")) return String.valueOf(args.get("user_id"));
+        if (args.containsKey("agent_id")) return String.valueOf(args.get("agent_id"));
         return "default";
     }
 

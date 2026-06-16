@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useApiStore } from '@/stores/api'
-import { ArrowLeft, Eye, ThumbsUp, X, Trash2, CheckCircle2, AlertCircle, Database, Search, Clock } from 'lucide-vue-next'
+import { ArrowLeft, ThumbsUp, X, Database, Search, Clock } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()

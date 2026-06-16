@@ -48,12 +48,12 @@ public class BillingServiceImpl implements BillingService {
 
     /**
      * 获取用户账单记录列表
-     * 
-     * @param userId 用户ID
+     *
+     * @param userId 用户ID（雪花ID）
      * @return 账单记录列表，按创建时间倒序排列
      */
     @Override
-    public List<BillingRecord> getUserBillingRecords(Long userId) {
+    public List<BillingRecord> getUserBillingRecords(String userId) {
         return billingRecordMapper.selectList(
                 new LambdaQueryWrapper<BillingRecord>()
                         .eq(BillingRecord::getUserId, userId)
@@ -72,10 +72,10 @@ public class BillingServiceImpl implements BillingService {
 
     /**
      * 用户充值
-     * 
+     *
      * 增加用户余额，记录充值记录和账单记录，并失效缓存。
-     * 
-     * @param userId       用户ID
+     *
+     * @param userId       用户ID（雪花ID）
      * @param amount       充值金额
      * @param paymentMethod 支付方式（alipay/wechat/admin等）
      * @return 充值记录实体
@@ -83,7 +83,7 @@ public class BillingServiceImpl implements BillingService {
      */
     @Override
     @Transactional
-    public RechargeRecord recharge(Long userId, BigDecimal amount, String paymentMethod) {
+    public RechargeRecord recharge(String userId, BigDecimal amount, String paymentMethod) {
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw new RuntimeException("用户不存在");
@@ -118,7 +118,7 @@ public class BillingServiceImpl implements BillingService {
      * 计费流程：API Key → 查询用户 → 余额检查 → 扣减余额 → 记录账单 → 更新API Key统计
      * 优先从Redis缓存读取余额进行预检查，然后更新数据库。
      *
-     * @param userId       用户ID
+     * @param userId       用户ID（雪花ID）
      * @param apiKeyId     API Key ID
      * @param modelId      调用的模型ID
      * @param amount       扣减金额（由API Key的unitPrice计算得出）
@@ -130,7 +130,7 @@ public class BillingServiceImpl implements BillingService {
      */
     @Override
     @Transactional
-    public boolean deductBalance(Long userId, Long apiKeyId, Long modelId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail) {
+    public boolean deductBalance(String userId, Long apiKeyId, Long modelId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail) {
         BigDecimal cachedBalance = redisCacheService.getUserBalance(userId);
         if (cachedBalance.compareTo(amount) < 0) {
             log.warn("缓存余额不足: userId={}, balance={}, required={}", userId, cachedBalance, amount);
@@ -184,75 +184,14 @@ public class BillingServiceImpl implements BillingService {
     }
 
     /**
-     * 异步扣减余额
-     *
-     * 由RabbitMQ消费者调用，实现异步计费，不阻塞主业务流程。
-     *
-     * @param userId       用户ID
-     * @param apiKeyId     API Key ID
-     * @param modelId      调用的模型ID
-     * @param amount       扣减金额
-     * @param inputTokens  输入Token数
-     * @param outputTokens 输出Token数
-     * @param detail       扣费详情描述
-     */
-    @Override
-    @Transactional
-    public void deductBalanceAsync(Long userId, Long apiKeyId, Long modelId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail) {
-        User user = userMapper.selectById(userId);
-        if (user == null) {
-            log.error("异步扣费失败：用户不存在: userId={}", userId);
-            return;
-        }
-
-        if (user.getBalance().compareTo(amount) < 0) {
-            log.warn("异步扣费失败：余额不足: userId={}, balance={}, required={}", userId, user.getBalance(), amount);
-            return;
-        }
-
-        user.setBalance(user.getBalance().subtract(amount));
-        user.setTotalUsageTokens(user.getTotalUsageTokens() + inputTokens + outputTokens);
-        userMapper.updateById(user);
-
-        redisCacheService.cacheUserBalance(userId, user.getBalance());
-
-        BillingRecord record = new BillingRecord();
-        record.setUserId(userId);
-        record.setApiKeyId(apiKeyId);
-        record.setModelId(modelId);
-        record.setType(BillingType.TOKEN_USAGE);
-        record.setAmount(amount.negate());
-        record.setBalanceAfter(user.getBalance());
-        record.setInputTokens(inputTokens);
-        record.setOutputTokens(outputTokens);
-        record.setDetail(detail);
-        billingRecordMapper.insert(record);
-
-        if (apiKeyId != null) {
-            try {
-                ApiKey apiKey = apiKeyMapper.selectById(apiKeyId);
-                if (apiKey != null) {
-                    apiKey.setTotalInputTokens(apiKey.getTotalInputTokens() + inputTokens);
-                    apiKey.setTotalOutputTokens(apiKey.getTotalOutputTokens() + outputTokens);
-                    apiKey.setTotalCost(apiKey.getTotalCost().add(amount));
-                    apiKey.setTotalCalls(apiKey.getTotalCalls() + 1);
-                    apiKeyMapper.updateById(apiKey);
-                }
-            } catch (Exception e) {
-                log.warn("更新 API Key 统计失败: apiKeyId={}, error={}", apiKeyId, e.getMessage());
-            }
-        }
-    }
-
-    /**
      * 获取用户余额（从数据库）
-     * 
-     * @param userId 用户ID
+     *
+     * @param userId 用户ID（雪花ID）
      * @return 用户当前余额
      * @throws RuntimeException 如果用户不存在
      */
     @Override
-    public BigDecimal getUserBalance(Long userId) {
+    public BigDecimal getUserBalance(String userId) {
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw new RuntimeException("用户不存在");
@@ -262,15 +201,15 @@ public class BillingServiceImpl implements BillingService {
 
     /**
      * 从缓存获取用户余额
-     * 
+     *
      * 优先从Redis缓存获取，缓存不存在时查询数据库并更新缓存。
      * 适用于高频查询场景，减少数据库压力。
-     * 
-     * @param userId 用户ID
+     *
+     * @param userId 用户ID（雪花ID）
      * @return 用户余额（缓存或数据库查询结果）
      */
     @Override
-    public BigDecimal getUserBalanceFromCache(Long userId) {
+    public BigDecimal getUserBalanceFromCache(String userId) {
         return redisCacheService.getUserBalance(userId);
     }
 }

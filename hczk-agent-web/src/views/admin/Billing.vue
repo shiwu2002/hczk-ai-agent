@@ -34,7 +34,7 @@ async function loadData() {
 
 /** 根据用户ID获取用户名 */
 function getUserName(userId) {
-  const user = users.value.find(u => u.id === userId)
+  const user = users.value.find(u => u.userId === userId)
   return user ? (user.name || user.username) : `用户${userId}`
 }
 

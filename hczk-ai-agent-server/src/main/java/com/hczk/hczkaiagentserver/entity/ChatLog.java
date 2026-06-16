@@ -19,7 +19,7 @@ public class ChatLog {
 
     /** 用户ID */
     @TableField("user_id")
-    private Long userId;
+    private String userId;
 
     /** 使用的API Key ID */
     @TableField("api_key_id")

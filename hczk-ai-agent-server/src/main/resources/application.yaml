@@ -68,12 +68,6 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
 
-platform:
-  billing:
-    input-multiplier: 1.0
-    output-multiplier: 1.0
-    min-recharge: 10.00
-
 # 平台基础配置
 app:
   platform-url: ${APP_PLATFORM_URL:http://localhost:8080}

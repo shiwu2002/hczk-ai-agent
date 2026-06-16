@@ -63,18 +63,6 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
     }
 
     @Override
-    public ToolDefinition getById(Long id) {
-        return toolMapper.selectById(id);
-    }
-
-    @Override
-    public ToolDefinition getByName(String name) {
-        QueryWrapper<ToolDefinition> qw = new QueryWrapper<>();
-        qw.eq("name", name);
-        return toolMapper.selectOne(qw);
-    }
-
-    @Override
     public List<ToolDefinition> getBySkillId(String skillId) {
         String cacheKey = RedisCacheService.toolsKey("skill:" + skillId);
         String cached = redisCache.getCachedJson(cacheKey);

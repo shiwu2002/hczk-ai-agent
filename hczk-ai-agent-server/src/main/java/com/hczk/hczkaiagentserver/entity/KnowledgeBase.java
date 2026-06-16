@@ -18,15 +18,15 @@ public class KnowledgeBase {
     /** 知识库描述 */
     private String description;
 
-    /** 归属类型：AGENT-智能体 / USER-用户 */
+    /** 归属类型：USER-用户 */
     @TableField("owner_type")
     private String ownerType;
 
-    /** 归属者ID */
+    /** 归属者ID（雪花ID字符串） */
     @TableField("owner_id")
-    private Long ownerId;
+    private String ownerId;
 
-    /** Milvus中的agentId标识（如 agent_1、user_2） */
+    /** Milvus中的agentId标识（雪花ID字符串） */
     @TableField("agent_id")
     private String agentId;
 

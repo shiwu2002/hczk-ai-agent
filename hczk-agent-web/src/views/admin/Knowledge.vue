@@ -7,7 +7,7 @@ import { API_BASE } from '@/stores/api'
 import {
   Database, Search, Trash2, X,
   BarChart3, Rocket, AlertCircle, CheckCircle2,
-  Clock, Hash, Eye, ListTree, Users, Bot, FileUp
+  Clock, Hash, Eye, ListTree, Users, FileUp
 } from 'lucide-vue-next'
 
 const api = useApiStore()
@@ -16,37 +16,18 @@ const router = useRouter()
 const loading = ref(false)
 const activeTab = ref('collections')
 
-// ---- Owner Selection (全局共享) ----
-const ownerType = ref('AGENT')
-const agents = ref([])
+// ---- User Selection (全局共享) ----
 const users = ref([])
-const selectedOwnerId = ref(null)
-const agentsLoading = ref(false)
+const selectedUserId = ref(null)
 const usersLoading = ref(false)
 
-const ownerList = computed(() => {
-  return ownerType.value === 'AGENT' ? agents.value : users.value
-})
-
-const ownerLoading = computed(() => {
-  return ownerType.value === 'AGENT' ? agentsLoading.value : usersLoading.value
-})
-
 function getAgentId() {
-  if (!selectedOwnerId.value) return ''
-  return ownerType.value === 'AGENT' ? `agent_${selectedOwnerId.value}` : `user_${selectedOwnerId.value}`
+  if (!selectedUserId.value) return ''
+  return String(selectedUserId.value)
 }
 
-function getOwnerLabel(item) {
-  if (ownerType.value === 'AGENT') return `${item.name} (ID: ${item.id})`
-  return `${item.username} (ID: ${item.id})`
-}
-
-async function loadAgents() {
-  agentsLoading.value = true
-  const res = await api.get('/knowledge/owners/agents')
-  if (res.code === 200) agents.value = res.data || []
-  agentsLoading.value = false
+function getUserLabel(item) {
+  return `${item.username} (ID: ${item.userId})`
 }
 
 async function loadUsers() {
@@ -55,12 +36,6 @@ async function loadUsers() {
   if (res.code === 200) users.value = res.data || []
   usersLoading.value = false
 }
-
-watch(ownerType, (val) => {
-  selectedOwnerId.value = null
-  if (val === 'AGENT' && agents.value.length === 0) loadAgents()
-  if (val === 'USER' && users.value.length === 0) loadUsers()
-})
 
 // ---- Collections ----
 const collections = ref([])
@@ -91,7 +66,7 @@ const recalcLoading = ref(false)
 
 onMounted(() => {
   loadCollections()
-  loadAgents()
+  loadUsers()
 })
 
 async function loadCollections() {
@@ -104,7 +79,6 @@ async function loadCollections() {
 async function deleteCollection(c) {
   const displayName = c.name
   if (!confirm(`确定删除集合 ${displayName}？此操作不可撤销。`)) return
-  // c.agentId 和 c.name(子集合名) 由后端 listCollections 返回
   const agentId = c.agentId || ''
   const collName = c.collectionName || ''
   if (!agentId || !collName) {
@@ -123,7 +97,7 @@ function viewChunks(name) {
 // ---- Retrieve ----
 async function doRetrieve() {
   const agentId = getAgentId()
-  if (!agentId) { alert('请选择归属智能体或用户'); return }
+  if (!agentId) { alert('请选择用户'); return }
   if (!retrieveForm.value.query.trim()) { alert('请输入检索内容'); return }
   retrieveLoading.value = true
   retrieveResult.value = null
@@ -172,7 +146,7 @@ function getFileIcon(name) {
 
 async function doIngestFile() {
   const agentId = getAgentId()
-  if (!agentId) { alert('请选择归属智能体或用户'); return }
+  if (!agentId) { alert('请选择用户'); return }
   if (ingestFileList.value.length === 0) { alert('请选择要上传的文件'); return }
   ingestFileLoading.value = true
   ingestFileResult.value = null
@@ -223,7 +197,7 @@ async function doIngestFile() {
 // ---- Recalculate ----
 async function doRecalculate() {
   const agentId = getAgentId()
-  if (!agentId) { alert('请选择归属智能体或用户'); return }
+  if (!agentId) { alert('请选择用户'); return }
   recalcLoading.value = true
   recalcResult.value = null
   const body = { agentId: agentId }
@@ -243,9 +217,6 @@ function getStrategyColor(s) {
   return m[s] || 'text-slate-400'
 }
 function fmtNum(n) { return n != null ? n.toLocaleString() : '-' }
-function getOwnerTypeLabel(t) {
-  return t === 'AGENT' ? '智能体' : t === 'USER' ? '用户' : '-'
-}
 
 const tabs = [
   { id: 'collections', label: '集合管理', icon: Database },
@@ -304,13 +275,11 @@ const tabs = [
                   <span class="flex items-center gap-1"><Hash class="w-3 h-3" /> {{ fmtNum(c.rowCount) }} 条</span>
                   <span v-if="c.agentId" class="flex items-center gap-1"><Rocket class="w-3 h-3" /> {{ c.agentId }}</span>
                 </div>
-                <div v-if="c.ownerType" class="flex items-center gap-2 mt-1.5">
-                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium"
-                    :class="c.ownerType === 'AGENT' ? 'bg-blue-500/10 text-blue-400' : 'bg-purple-500/10 text-purple-400'">
-                    <component :is="c.ownerType === 'AGENT' ? Bot : Users" class="w-3 h-3" />
-                    {{ getOwnerTypeLabel(c.ownerType) }}
+                <div v-if="c.ownerName" class="flex items-center gap-2 mt-1.5">
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-purple-500/10 text-purple-400">
+                    <Users class="w-3 h-3" /> 用户
                   </span>
-                  <span v-if="c.ownerName" class="text-xs text-slate-300">{{ c.ownerName }}</span>
+                  <span class="text-xs text-slate-300">{{ c.ownerName }}</span>
                 </div>
               </div>
             </div>
@@ -333,38 +302,16 @@ const tabs = [
         <FileUp class="w-5 h-5 text-emerald-400" /> 文件上传
       </h2>
       <div class="glass-card p-6 space-y-4">
-        <!-- 归属选择 -->
+        <!-- 用户选择 -->
         <div class="p-4 rounded-lg bg-white/5 border border-white/10 space-y-3">
-          <label class="block text-sm font-medium text-slate-200">归属绑定</label>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label class="block text-xs text-slate-400 mb-1.5">归属类型</label>
-              <div class="flex gap-2">
-                <button @click="ownerType = 'AGENT'"
-                  :class="['flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all',
-                    ownerType === 'AGENT' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-white/5 text-slate-400 border border-transparent hover:bg-white/10']">
-                  <Bot class="w-4 h-4" /> 智能体
-                </button>
-                <button @click="ownerType = 'USER'"
-                  :class="['flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all',
-                    ownerType === 'USER' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-white/5 text-slate-400 border border-transparent hover:bg-white/10']">
-                  <Users class="w-4 h-4" /> 用户
-                </button>
-              </div>
-            </div>
-            <div class="md:col-span-2">
-              <label class="block text-xs text-slate-400 mb-1.5">
-                选择{{ ownerType === 'AGENT' ? '智能体' : '用户' }}
-              </label>
-              <select v-model="selectedOwnerId" class="input-field w-full" :disabled="ownerLoading">
-                <option :value="null" disabled>-- 请选择{{ ownerType === 'AGENT' ? '智能体' : '用户' }} --</option>
-                <option v-for="item in ownerList" :key="item.id" :value="item.id">
-                  {{ getOwnerLabel(item) }}
-                </option>
-              </select>
-            </div>
-          </div>
-          <div v-if="selectedOwnerId" class="text-xs text-slate-400">
+          <label class="block text-sm font-medium text-slate-200">归属用户</label>
+          <select v-model="selectedUserId" class="input-field w-full" :disabled="usersLoading">
+            <option :value="null" disabled>-- 请选择用户 --</option>
+            <option v-for="item in users" :key="item.userId" :value="item.userId">
+              {{ getUserLabel(item) }}
+            </option>
+          </select>
+          <div v-if="selectedUserId" class="text-xs text-slate-400">
             Agent ID: <span class="text-emerald-400 font-mono">{{ getAgentId() }}</span>
           </div>
         </div>
@@ -462,37 +409,15 @@ const tabs = [
         <Search class="w-5 h-5 text-emerald-400" /> 检索测试
       </h2>
       <div class="glass-card p-6 space-y-4">
-        <!-- 归属选择 -->
+        <!-- 用户选择 -->
         <div class="p-4 rounded-lg bg-white/5 border border-white/10 space-y-3">
-          <label class="block text-sm font-medium text-slate-200">归属绑定</label>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label class="block text-xs text-slate-400 mb-1.5">归属类型</label>
-              <div class="flex gap-2">
-                <button @click="ownerType = 'AGENT'"
-                  :class="['flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all',
-                    ownerType === 'AGENT' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-white/5 text-slate-400 border border-transparent hover:bg-white/10']">
-                  <Bot class="w-4 h-4" /> 智能体
-                </button>
-                <button @click="ownerType = 'USER'"
-                  :class="['flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all',
-                    ownerType === 'USER' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-white/5 text-slate-400 border border-transparent hover:bg-white/10']">
-                  <Users class="w-4 h-4" /> 用户
-                </button>
-              </div>
-            </div>
-            <div class="md:col-span-2">
-              <label class="block text-xs text-slate-400 mb-1.5">
-                选择{{ ownerType === 'AGENT' ? '智能体' : '用户' }}
-              </label>
-              <select v-model="selectedOwnerId" class="input-field w-full" :disabled="ownerLoading">
-                <option :value="null" disabled>-- 请选择{{ ownerType === 'AGENT' ? '智能体' : '用户' }} --</option>
-                <option v-for="item in ownerList" :key="item.id" :value="item.id">
-                  {{ getOwnerLabel(item) }}
-                </option>
-              </select>
-            </div>
-          </div>
+          <label class="block text-sm font-medium text-slate-200">归属用户</label>
+          <select v-model="selectedUserId" class="input-field w-full" :disabled="usersLoading">
+            <option :value="null" disabled>-- 请选择用户 --</option>
+            <option v-for="item in users" :key="item.userId" :value="item.userId">
+              {{ getUserLabel(item) }}
+            </option>
+          </select>
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -560,41 +485,19 @@ const tabs = [
         <BarChart3 class="w-5 h-5 text-emerald-400" /> 相关性评分重算
       </h2>
       <div class="glass-card p-6 space-y-4">
-        <!-- 归属选择 -->
+        <!-- 用户选择 -->
         <div class="p-4 rounded-lg bg-white/5 border border-white/10 space-y-3">
-          <label class="block text-sm font-medium text-slate-200">归属绑定</label>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label class="block text-xs text-slate-400 mb-1.5">归属类型</label>
-              <div class="flex gap-2">
-                <button @click="ownerType = 'AGENT'"
-                  :class="['flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all',
-                    ownerType === 'AGENT' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-white/5 text-slate-400 border border-transparent hover:bg-white/10']">
-                  <Bot class="w-4 h-4" /> 智能体
-                </button>
-                <button @click="ownerType = 'USER'"
-                  :class="['flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all',
-                    ownerType === 'USER' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-white/5 text-slate-400 border border-transparent hover:bg-white/10']">
-                  <Users class="w-4 h-4" /> 用户
-                </button>
-              </div>
-            </div>
-            <div class="md:col-span-2">
-              <label class="block text-xs text-slate-400 mb-1.5">
-                选择{{ ownerType === 'AGENT' ? '智能体' : '用户' }}
-              </label>
-              <select v-model="selectedOwnerId" class="input-field w-full" :disabled="ownerLoading">
-                <option :value="null" disabled>-- 请选择{{ ownerType === 'AGENT' ? '智能体' : '用户' }} --</option>
-                <option v-for="item in ownerList" :key="item.id" :value="item.id">
-                  {{ getOwnerLabel(item) }}
-                </option>
-              </select>
-            </div>
-          </div>
+          <label class="block text-sm font-medium text-slate-200">归属用户</label>
+          <select v-model="selectedUserId" class="input-field w-full" :disabled="usersLoading">
+            <option :value="null" disabled>-- 请选择用户 --</option>
+            <option v-for="item in users" :key="item.userId" :value="item.userId">
+              {{ getUserLabel(item) }}
+            </option>
+          </select>
         </div>
 
         <div>
-          <label class="block text-sm text-slate-300 mb-1.5">集合名（留空则重算该归属对象全部集合）</label>
+          <label class="block text-sm text-slate-300 mb-1.5">集合名（留空则重算该用户全部集合）</label>
           <input v-model="recalcForm.collection" class="input-field" placeholder="default" />
         </div>
         <button @click="doRecalculate" :disabled="recalcLoading" class="btn-primary flex items-center gap-2">

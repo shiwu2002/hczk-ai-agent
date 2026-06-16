@@ -22,10 +22,6 @@ public class ChatModelFactory {
         return cache.computeIfAbsent(model.getId(), id -> createChatModel(model));
     }
 
-    public void evict(Long modelId) {
-        cache.remove(modelId);
-    }
-
     /**
      * 设置当前请求的 thinking 参数（通过 ThreadLocal 透传到 SDK）
      * 必须在请求处理完成后调用 clearRequestThinking() 清理

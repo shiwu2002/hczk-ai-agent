@@ -7,7 +7,7 @@ import java.util.Map;
 
 public interface AgentService {
     List<Agent> getAllAgents();
-    List<Agent> getAgentsByUserId(Long userId);
+    List<Agent> getAgentsByUserId(String userId);
     Agent getAgentById(Long id);
     Agent createAgent(Agent agent);
     Agent updateAgent(Long id, Agent agent);

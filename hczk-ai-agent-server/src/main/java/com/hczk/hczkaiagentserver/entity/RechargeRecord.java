@@ -13,7 +13,7 @@ public class RechargeRecord {
     private Long id;
 
     @TableField("user_id")
-    private Long userId;
+    private String userId;
 
     private BigDecimal amount;
 

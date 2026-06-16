@@ -35,7 +35,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     }
 
     @Override
-    public List<KnowledgeBase> getByOwnerId(String ownerType, Long ownerId) {
+    public List<KnowledgeBase> getByOwnerId(String ownerType, String ownerId) {
         return knowledgeBaseMapper.selectList(
                 new LambdaQueryWrapper<KnowledgeBase>()
                         .eq(KnowledgeBase::getOwnerType, ownerType)
@@ -98,7 +98,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     }
 
     @Override
-    public KnowledgeBase findByOwnerAndCollection(String ownerType, Long ownerId, String collectionName) {
+    public KnowledgeBase findByOwnerAndCollection(String ownerType, String ownerId, String collectionName) {
         return knowledgeBaseMapper.selectOne(
                 new LambdaQueryWrapper<KnowledgeBase>()
                         .eq(KnowledgeBase::getOwnerType, ownerType)

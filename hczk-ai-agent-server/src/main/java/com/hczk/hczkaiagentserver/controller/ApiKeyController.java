@@ -34,20 +34,20 @@ public class ApiKeyController {
 
     /** 根据用户ID获取其API Key列表 */
     @GetMapping("/user/{userId}")
-    public Result<List<ApiKey>> getApiKeysByUserId(@PathVariable Long userId) {
+    public Result<List<ApiKey>> getApiKeysByUserId(@PathVariable String userId) {
         return Result.success(apiKeyService.getApiKeysByUserId(userId));
     }
 
     /**
      * 创建 API Key
-     * @param userId    用户ID
+     * @param userId    用户ID（雪花ID）
      * @param name      Key名称
      * @param unitPrice 统一Token单价（元/千Tokens）
      * @param modelIds  绑定的大模型ID列表
      */
     @PostMapping
     public Result<ApiKey> createApiKey(
-            @RequestParam Long userId,
+            @RequestParam String userId,
             @RequestParam String name,
             @RequestParam(required = false, defaultValue = "0") BigDecimal unitPrice,
             @RequestParam(required = false) List<Long> modelIds) {

@@ -50,7 +50,7 @@ public class AgentServiceImpl implements AgentService {
     }
 
     @Override
-    public List<Agent> getAgentsByUserId(Long userId) {
+    public List<Agent> getAgentsByUserId(String userId) {
         return agentMapper.selectList(new LambdaQueryWrapper<Agent>().eq(Agent::getUserId, userId));
     }
 
@@ -98,7 +98,6 @@ public class AgentServiceImpl implements AgentService {
         existing.setInfoEndpoint(agent.getInfoEndpoint());
         existing.setStreamEndpoint(agent.getStreamEndpoint());
         existing.setHistoryEndpoint(agent.getHistoryEndpoint());
-        existing.setAuthHeader(agent.getAuthHeader());
         existing.setVersion(agent.getVersion());
 
         agentMapper.updateById(existing);
@@ -176,9 +175,6 @@ public class AgentServiceImpl implements AgentService {
 
         try {
             HttpHeaders headers = new HttpHeaders();
-            if (agent.getAuthHeader() != null && !agent.getAuthHeader().trim().isEmpty()) {
-                headers.set("Authorization", agent.getAuthHeader());
-            }
             headers.setContentType(MediaType.APPLICATION_JSON);
 
             HttpEntity<Void> request = new HttpEntity<>(headers);
@@ -216,9 +212,6 @@ public class AgentServiceImpl implements AgentService {
 
         try {
             HttpHeaders headers = new HttpHeaders();
-            if (agent.getAuthHeader() != null && !agent.getAuthHeader().trim().isEmpty()) {
-                headers.set("Authorization", agent.getAuthHeader());
-            }
             headers.setContentType(MediaType.APPLICATION_JSON);
 
             HttpEntity<Void> request = new HttpEntity<>(headers);

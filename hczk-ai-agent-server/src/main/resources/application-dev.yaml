@@ -20,12 +20,6 @@ spring:
 jwt:
   secret: hczk-ai-platform-secret-key-2024-very-long-and-secure
 
-# 通用智能体运行时配置
-agent:
-  runtime:
-    url: http://192.168.0.104:3000/api/chat
-    health-url: http://192.168.0.104:3000/api/health
-
 mybatis-plus:
   configuration:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl

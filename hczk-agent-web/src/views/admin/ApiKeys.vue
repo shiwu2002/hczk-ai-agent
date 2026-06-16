@@ -297,7 +297,7 @@ function goToPage(page) {
             <label class="block text-sm text-slate-300 mb-2">绑定用户 *</label>
             <select v-model="newApiKey.userId" class="input-field">
               <option value="">请选择用户</option>
-              <option v-for="u in users" :key="u.id" :value="u.id">{{ u.username }}</option>
+              <option v-for="u in users" :key="u.userId" :value="u.userId">{{ u.username }}</option>
             </select>
           </div>
           <div>

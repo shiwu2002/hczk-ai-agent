@@ -21,14 +21,14 @@ onMounted(async () => {
   if (res.code === 200) {
     const u = res.data
     profile.value = { username: u.username, email: u.email, phoneNumber: u.phoneNumber || '', companyName: u.companyName || '' }
-    userId.value = u.id || ''
+    userId.value = u.userId || ''
     createdAt.value = u.createdAt || ''
   }
 })
 
 async function saveProfile() {
   saving.value = true
-  const res = await api.put(`/users/${authStore.user?.id}`, {
+  const res = await api.put(`/users/${authStore.user?.userId}`, {
     phoneNumber: profile.value.phoneNumber,
     companyName: profile.value.companyName
   })
@@ -56,7 +56,7 @@ async function changePassword() {
   }
   changingPassword.value = true
   try {
-    const res = await api.put(`/users/${authStore.user?.id}/password`, {
+    const res = await api.put(`/users/${authStore.user?.userId}/password`, {
       oldPassword,
       newPassword
     })
