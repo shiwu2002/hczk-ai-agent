@@ -8,13 +8,16 @@ import com.hczk.hczkaiagentserver.entity.User;
 import com.hczk.hczkaiagentserver.enums.BillingType;
 import com.hczk.hczkaiagentserver.mapper.BillingRecordMapper;
 import com.hczk.hczkaiagentserver.mapper.UserMapper;
+import com.hczk.hczkaiagentserver.service.AlipayService;
 import com.hczk.hczkaiagentserver.service.BillingService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -27,6 +30,7 @@ public class BillingController {
     private final BillingService billingService;
     private final BillingRecordMapper billingRecordMapper;
     private final UserMapper userMapper;
+    private final AlipayService alipayService;
 
     @GetMapping("/records/{userId}")
     public Result<List<BillingRecord>> getUserBillingRecords(@PathVariable Long userId) {
@@ -110,6 +114,47 @@ public class BillingController {
                         .eq(BillingRecord::getType, BillingType.RECHARGE)
                         .orderByDesc(BillingRecord::getCreatedAt));
         return Result.success(records);
+    }
+
+    /**
+     * 发起支付宝充值
+     * POST /billing/recharge-alipay
+     */
+    @PostMapping("/recharge-alipay")
+    public Result<Map<String, String>> createAlipayRecharge(@RequestBody Map<String, Object> body) {
+        Long userId = resolveCurrentUserId();
+        if (userId == null) {
+            return Result.error(401, "未登录");
+        }
+        BigDecimal amount = new BigDecimal(body.get("amount").toString());
+        if (amount.compareTo(new BigDecimal("0.01")) < 0) {
+            return Result.error(400, "最低充值金额为0.01元");
+        }
+        String orderNo = "RCH" + System.currentTimeMillis() + "U" + userId;
+        String payForm = alipayService.createOrder(userId, amount, orderNo);
+        return Result.success(Map.of("orderNo", orderNo, "payForm", payForm));
+    }
+
+    /**
+     * 支付宝异步通知回调（无需认证，支付宝服务器调用）
+     * POST /billing/alipay/notify
+     */
+    @PostMapping("/alipay/notify")
+    public String alipayNotify(HttpServletRequest request) {
+        Map<String, String> params = new HashMap<>();
+        request.getParameterMap().forEach((key, values) -> params.put(key, values[0]));
+        boolean success = alipayService.handleNotify(params);
+        return success ? "success" : "failure";
+    }
+
+    /**
+     * 查询充值订单状态
+     * GET /billing/recharge/{orderNo}/status
+     */
+    @GetMapping("/recharge/{orderNo}/status")
+    public Result<Map<String, Object>> checkRechargeStatus(@PathVariable String orderNo) {
+        boolean paid = alipayService.queryOrderStatus(orderNo);
+        return Result.success(Map.of("orderNo", orderNo, "paid", paid));
     }
 
     /**

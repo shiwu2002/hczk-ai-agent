@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useApiStore } from '@/stores/api'
 import { Wallet, Zap, Crown, Rocket, Check, Clock, ChevronLeft, ChevronRight } from 'lucide-vue-next'
@@ -16,6 +16,8 @@ const customAmount = ref(null)
 const isCustom = ref(false)
 const currentPage = ref(1)
 const pageSize = 10
+const polling = ref(false)
+let pollTimer = null
 
 const packages = ref([
   { id: 1, name: '入门包', amount: 100, bonus: 0, icon: Zap, popular: false },
@@ -44,24 +46,76 @@ async function recharge() {
   }
   recharging.value = true
   try {
-    const res = await api.post(`/billing/self-recharge?amount=${amount}&paymentMethod=${paymentMethod.value}`)
-    if (res.code === 200) {
-      const userRes = await api.get('/users/me')
-      if (userRes.code === 200) authStore.user = userRes.data
-      showSuccess.value = true
-      setTimeout(() => showSuccess.value = false, 3000)
-      selectedPackage.value = null
-      isCustom.value = false
-      customAmount.value = null
-      loadRechargeHistory()
+    if (paymentMethod.value === 'alipay') {
+      // 支付宝沙箱支付
+      const res = await api.post('/billing/recharge-alipay', { amount })
+      if (res.code === 200 && res.data?.payForm) {
+        // 新窗口打开支付表单
+        const win = window.open('', '_blank')
+        if (win) {
+          win.document.write(res.data.payForm)
+          win.document.close()
+        }
+        // 开始轮询支付状态
+        pollPaymentResult(res.data.orderNo)
+      } else {
+        alert(res.message || '创建支付订单失败')
+      }
     } else {
-      alert(res.message || '充值失败')
+      // 其他支付方式：直接到账
+      const res = await api.post(`/billing/self-recharge?amount=${amount}&paymentMethod=${paymentMethod.value}`)
+      if (res.code === 200) {
+        const userRes = await api.get('/users/me')
+        if (userRes.code === 200) authStore.user = userRes.data
+        showSuccess.value = true
+        setTimeout(() => showSuccess.value = false, 3000)
+        selectedPackage.value = null
+        isCustom.value = false
+        customAmount.value = null
+        loadRechargeHistory()
+      } else {
+        alert(res.message || '充值失败')
+      }
     }
   } catch (e) {
     alert('充值失败')
   } finally {
     recharging.value = false
   }
+}
+
+function pollPaymentResult(orderNo) {
+  let attempts = 0
+  const maxAttempts = 60
+  polling.value = true
+  pollTimer = setInterval(async () => {
+    attempts++
+    if (attempts > maxAttempts) {
+      clearInterval(pollTimer)
+      pollTimer = null
+      polling.value = false
+      return
+    }
+    try {
+      const res = await api.get(`/billing/recharge/${orderNo}/status`)
+      if (res.code === 200 && res.data?.paid) {
+        clearInterval(pollTimer)
+        pollTimer = null
+        polling.value = false
+        // 刷新余额
+        const userRes = await api.get('/users/me')
+        if (userRes.code === 200) authStore.user = userRes.data
+        showSuccess.value = true
+        setTimeout(() => showSuccess.value = false, 3000)
+        selectedPackage.value = null
+        isCustom.value = false
+        customAmount.value = null
+        loadRechargeHistory()
+      }
+    } catch (e) {
+      // 忽略轮询错误
+    }
+  }, 3000)
 }
 
 async function loadRechargeHistory() {
@@ -74,7 +128,7 @@ async function loadRechargeHistory() {
 }
 
 const paymentMethods = [
-  { value: 'alipay', label: '支付宝', shortLabel: '支', color: 'blue', desc: '即时到账' },
+  { value: 'alipay', label: '支付宝', shortLabel: '支', color: 'blue', desc: '沙箱支付' },
   { value: 'wechat', label: '微信支付', shortLabel: '微', color: 'green', desc: '即时到账' },
   { value: 'bank', label: '银行转账', shortLabel: '银', color: 'amber', desc: '人工确认' }
 ]
@@ -98,6 +152,13 @@ function goToPage(page) {
 
 onMounted(() => {
   loadRechargeHistory()
+})
+
+onUnmounted(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
 })
 </script>
 
@@ -197,6 +258,9 @@ onMounted(() => {
           </span>
           <span v-else>立即充值</span>
         </button>
+        <p v-if="polling" class="text-sm text-amber-400 mt-3 text-center animate-pulse">
+          等待支付确认中...请在弹出的支付宝页面完成支付
+        </p>
       </div>
     </div>
 

@@ -115,3 +115,15 @@ logging:
     file: UTF-8
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+alipay:
+  enabled: ${ALIPAY_ENABLED:false}
+  app-id: ${ZFBAPPID:}
+  private-key: ${ALIPAY_PRIVATE_KEY:}
+  alipay-public-key: ${ALIPAY_PUBLIC_KEY:}
+  gateway-url: https://openapi-sandbox.dl.alipaydev.com/gateway.do
+  notify-url: ${ALIPAY_NOTIFY_URL:http://s33ad2fe.natappfree.cc/api/billing/alipay/notify}
+  return-url: ${ALIPAY_RETURN_URL:http://localhost:5173/recharge}
+  sign-type: RSA2
+  charset: UTF-8
+  format: json
