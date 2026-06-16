@@ -107,7 +107,7 @@ public class AlipayServiceImpl implements AlipayService {
     }
 
     @Override
-    public String createOrder(Long userId, BigDecimal amount, String orderNo) {
+    public String createOrder(String userId, BigDecimal amount, String orderNo) {
         AlipayTradePagePayRequest request = new AlipayTradePagePayRequest();
         request.setNotifyUrl(alipayConfig.getNotifyUrl());
         request.setReturnUrl(alipayConfig.getReturnUrl());
@@ -165,15 +165,15 @@ public class AlipayServiceImpl implements AlipayService {
         }
 
         // 解析 outTradeNo 格式: RCH{timestamp}U{userId}
-        Long userId;
+        String userId;
         try {
             int uIndex = outTradeNo.indexOf("U");
             if (uIndex < 0) {
                 log.error("支付宝回调订单号格式错误: outTradeNo={}", outTradeNo);
                 return false;
             }
-            userId = Long.parseLong(outTradeNo.substring(uIndex + 1));
-        } catch (NumberFormatException e) {
+            userId = outTradeNo.substring(uIndex + 1);
+        } catch (Exception e) {
             log.error("支付宝回调订单号解析userId失败: outTradeNo={}", outTradeNo, e);
             return false;
         }

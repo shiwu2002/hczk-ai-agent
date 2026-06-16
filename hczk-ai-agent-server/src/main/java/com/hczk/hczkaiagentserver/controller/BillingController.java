@@ -120,7 +120,7 @@ public class BillingController {
      */
     @PostMapping("/recharge-alipay")
     public Result<Map<String, String>> createAlipayRecharge(@RequestBody Map<String, Object> body) {
-        Long userId = resolveCurrentUserId();
+        String userId = resolveCurrentUserId();
         if (userId == null) {
             return Result.error(401, "未登录");
         }
