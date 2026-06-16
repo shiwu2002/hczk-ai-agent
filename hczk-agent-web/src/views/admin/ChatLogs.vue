@@ -1,30 +1,39 @@
+<!--
+  对话记录管理页面（管理员）
+  功能：按用户分组查看对话记录，支持筛选、详情查看、文档导出
+  三级视图：用户列表 → 对话记录 → 文档预览/下载
+-->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useApiStore } from '@/stores/api'
 import { MessageSquare, Search, Eye, X, User, Cpu, Clock, Coins, Filter, FileText, Download, ChevronRight, ArrowLeft } from 'lucide-vue-next'
 
 const api = useApiStore()
-const chatLogs = ref([])
-const users = ref([])
-const loading = ref(false)
-const showDetail = ref(false)
-const selectedLog = ref(null)
 
-// View state: 'users' | 'records' | 'preview'
+// ========== 数据状态 ==========
+const chatLogs = ref([])              // 所有对话记录
+const users = ref([])                 // 用户列表
+const loading = ref(false)            // 加载状态
+const showDetail = ref(false)         // 显示详情弹窗
+const selectedLog = ref(null)         // 当前查看的对话记录
+
+// ========== 视图状态 ==========
+// 三级视图：'users' 用户列表 | 'records' 对话记录 | 'preview' 文档预览
 const viewMode = ref('users')
-const selectedUser = ref(null)
-const userLogs = ref([])
+const selectedUser = ref(null)        // 当前选中的用户
+const userLogs = ref([])              // 当前用户的对话记录
 
-// Filters
-const filterModel = ref('')
-const filterStatus = ref('')
+// ========== 筛选条件 ==========
+const filterModel = ref('')           // 按模型名称筛选
+const filterStatus = ref('')          // 按状态筛选（success/failed）
 
+/** 所有对话中出现的模型名称列表（去重排序） */
 const modelOptions = computed(() => {
   const models = [...new Set(chatLogs.value.map(l => l.modelName).filter(Boolean))]
   return models.sort()
 })
 
-// Group logs by user
+/** 按用户分组对话记录，统计每用户的输入/输出Token和费用 */
 const userGroups = computed(() => {
   const map = {}
   for (const log of chatLogs.value) {
@@ -39,7 +48,7 @@ const userGroups = computed(() => {
   return Object.values(map).sort((a, b) => b.logs.length - a.logs.length)
 })
 
-// Filtered user logs
+/** 当前用户的对话记录，经过模型和状态筛选 */
 const filteredUserLogs = computed(() => {
   let logs = userLogs.value
   if (filterModel.value) logs = logs.filter(l => l.modelName === filterModel.value)
@@ -47,12 +56,15 @@ const filteredUserLogs = computed(() => {
   return logs
 })
 
-// User model options (for current user's logs)
+/** 当前用户对话中出现的模型名称列表 */
 const userModelOptions = computed(() => {
   const models = [...new Set(userLogs.value.map(l => l.modelName).filter(Boolean))]
   return models.sort()
 })
 
+// ========== 数据加载 ==========
+
+/** 加载所有对话记录 */
 async function loadChatLogs() {
   loading.value = true
   try {
@@ -65,6 +77,7 @@ async function loadChatLogs() {
   }
 }
 
+/** 加载用户列表 */
 async function loadUsers() {
   try {
     const res = await api.get('/users')
@@ -75,6 +88,7 @@ async function loadUsers() {
   }
 }
 
+/** 用户ID到用户名的映射 */
 const userMap = computed(() => {
   const map = {}
   for (const u of users.value) {
@@ -83,6 +97,9 @@ const userMap = computed(() => {
   return map
 })
 
+// ========== 视图切换 ==========
+
+/** 点击用户卡片，进入该用户的对话记录视图 */
 function clickUser(group) {
   selectedUser.value = { id: group.userId, name: userMap.value[group.userId] || ('用户' + group.userId) }
   userLogs.value = group.logs
@@ -91,18 +108,32 @@ function clickUser(group) {
   viewMode.value = 'records'
 }
 
+/** 查看对话详情弹窗 */
 function viewDetail(log) {
   selectedLog.value = log
   showDetail.value = true
 }
 
+/** 返回用户列表视图 */
 function backToUsers() {
   viewMode.value = 'users'
   selectedUser.value = null
   userLogs.value = []
 }
 
-// Generate document text
+/** 进入文档预览视图 */
+function showPreview() {
+  viewMode.value = 'preview'
+}
+
+/** 从预览返回记录视图 */
+function backToRecords() {
+  viewMode.value = 'records'
+}
+
+// ========== 文档导出 ==========
+
+/** 生成Markdown格式的对话记录文档 */
 const docContent = computed(() => {
   if (!selectedUser.value || !filteredUserLogs.value.length) return ''
   const logs = filteredUserLogs.value
@@ -133,14 +164,7 @@ const docContent = computed(() => {
   return doc
 })
 
-function showPreview() {
-  viewMode.value = 'preview'
-}
-
-function backToRecords() {
-  viewMode.value = 'records'
-}
-
+/** 下载Markdown文档 */
 function downloadDoc() {
   const content = docContent.value
   if (!content) return
@@ -153,28 +177,34 @@ function downloadDoc() {
   URL.revokeObjectURL(url)
 }
 
+// ========== 格式化函数 ==========
+
+/** 格式化时间 */
 function formatTime(dateStr) {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleString('zh-CN')
 }
 
+/** 格式化费用（6位小数） */
 function formatCost(cost) {
   if (!cost) return '¥0.000000'
   return '¥' + Number(cost).toFixed(6)
 }
 
+/** 格式化耗时（ms或s） */
 function formatDuration(ms) {
   if (!ms) return '-'
   if (ms < 1000) return ms + 'ms'
   return (ms / 1000).toFixed(1) + 's'
 }
 
+/** 截断长文本 */
 function truncate(text, len = 50) {
   if (!text) return '-'
   return text.length > len ? text.substring(0, len) + '...' : text
 }
 
-// Simple markdown to HTML renderer
+/** 简易Markdown转HTML渲染器（用于文档预览） */
 function renderMarkdown(md) {
   if (!md) return ''
   let html = md
@@ -200,6 +230,7 @@ function renderMarkdown(md) {
   return html
 }
 
+// ========== 初始化 ==========
 onMounted(() => {
   loadChatLogs()
   loadUsers()
@@ -208,9 +239,10 @@ onMounted(() => {
 
 <template>
   <div>
-    <!-- Header -->
+    <!-- 页面标题与操作按钮，根据视图模式显示不同内容 -->
     <div class="flex items-center justify-between mb-8">
       <div class="flex items-center gap-3">
+        <!-- 返回按钮（非用户列表视图时显示） -->
         <button v-if="viewMode !== 'users'" @click="viewMode === 'records' ? backToUsers() : backToRecords()" class="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors">
           <ArrowLeft class="w-5 h-5" />
         </button>
@@ -224,14 +256,17 @@ onMounted(() => {
         </div>
       </div>
       <div class="flex items-center gap-2">
+        <!-- 整理成文档按钮 -->
         <button v-if="viewMode === 'records'" @click="showPreview" class="btn-primary flex items-center gap-2">
           <FileText class="w-4 h-4" />
           整理成文档
         </button>
+        <!-- 下载文档按钮 -->
         <button v-if="viewMode === 'preview'" @click="downloadDoc" class="btn-primary flex items-center gap-2">
           <Download class="w-4 h-4" />
           下载文档
         </button>
+        <!-- 刷新按钮 -->
         <button @click="loadChatLogs" class="px-4 py-2 rounded-lg border border-white/10 text-slate-300 hover:bg-white/5 transition-colors flex items-center gap-2">
           <Search class="w-4 h-4" />
           刷新
@@ -239,13 +274,13 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Loading -->
+    <!-- 加载中 -->
     <div v-if="loading" class="flex items-center justify-center py-32">
       <div class="w-10 h-10 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
       <span class="ml-3 text-slate-400">加载中...</span>
     </div>
 
-    <!-- Users View -->
+    <!-- 用户列表视图：按用户分组展示对话统计 -->
     <template v-else-if="viewMode === 'users'">
       <div v-if="!userGroups.length" class="glass-card text-center py-16">
         <MessageSquare class="w-12 h-12 text-slate-600 mx-auto mb-3" />
@@ -256,6 +291,7 @@ onMounted(() => {
           @click="clickUser(group)"
           class="glass-card p-5 cursor-pointer hover:bg-white/[0.03] transition-all hover:border-emerald-500/20 group">
           <div class="flex items-center gap-4 mb-4">
+            <!-- 用户头像（首字母） -->
             <div class="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white text-sm font-bold">
               {{ (userMap[group.userId] || '?')[0] }}
             </div>
@@ -265,6 +301,7 @@ onMounted(() => {
             </div>
             <ChevronRight class="w-4 h-4 text-slate-500 group-hover:text-emerald-400 transition-colors" />
           </div>
+          <!-- 用户统计：输入Token、输出Token、费用 -->
           <div class="grid grid-cols-3 gap-3">
             <div class="text-center p-2 rounded-lg bg-cyan-500/5">
               <p class="text-xs text-slate-500">输入</p>
@@ -283,9 +320,9 @@ onMounted(() => {
       </div>
     </template>
 
-    <!-- Records View -->
+    <!-- 对话记录视图：展示选中用户的对话列表 -->
     <template v-else-if="viewMode === 'records'">
-      <!-- Filters -->
+      <!-- 筛选栏 -->
       <div class="glass-card p-4 mb-6 flex flex-wrap items-center gap-4">
         <Filter class="w-4 h-4 text-slate-400" />
         <select v-model="filterModel" class="input-field w-40">
@@ -300,7 +337,7 @@ onMounted(() => {
         <span class="text-sm text-slate-400 ml-auto">共 {{ filteredUserLogs.length }} 条记录</span>
       </div>
 
-      <!-- Records Table -->
+      <!-- 对话记录表格 -->
       <div class="glass-card overflow-hidden">
         <table class="w-full">
           <thead>
@@ -354,19 +391,19 @@ onMounted(() => {
       </div>
     </template>
 
-    <!-- Preview View -->
+    <!-- 文档预览视图：渲染Markdown格式的对话记录 -->
     <template v-else-if="viewMode === 'preview'">
       <div class="glass-card p-8 max-w-4xl mx-auto">
-        <!-- Rendered Markdown -->
         <div class="prose prose-invert max-w-none">
           <div v-html="renderMarkdown(docContent)" class="markdown-body"></div>
         </div>
       </div>
     </template>
 
-    <!-- Detail Modal -->
+    <!-- 对话详情弹窗 -->
     <div v-if="showDetail && selectedLog" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="showDetail = false">
       <div class="glass-card w-full max-w-3xl max-h-[85vh] overflow-y-auto m-4">
+        <!-- 弹窗标题 -->
         <div class="flex items-center justify-between p-6 border-b border-white/5">
           <h3 class="text-lg font-semibold text-white">对话详情</h3>
           <button @click="showDetail = false" class="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white">
@@ -374,6 +411,7 @@ onMounted(() => {
           </button>
         </div>
 
+        <!-- 基本信息：模型、耗时、费用、用户 -->
         <div class="p-6 grid grid-cols-2 md:grid-cols-4 gap-4 border-b border-white/5">
           <div class="flex items-center gap-2">
             <Cpu class="w-4 h-4 text-cyan-400" />
@@ -405,6 +443,7 @@ onMounted(() => {
           </div>
         </div>
 
+        <!-- Token统计 -->
         <div class="p-6 grid grid-cols-4 gap-4 border-b border-white/5">
           <div class="text-center p-3 rounded-lg bg-cyan-500/5 border border-cyan-500/10">
             <p class="text-xs text-slate-500 mb-1">输入Token</p>
@@ -426,6 +465,7 @@ onMounted(() => {
           </div>
         </div>
 
+        <!-- 用户输入内容 -->
         <div class="p-6 border-b border-white/5">
           <h4 class="text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-cyan-400"></span> 用户输入
@@ -435,6 +475,7 @@ onMounted(() => {
           </div>
         </div>
 
+        <!-- AI输出内容 -->
         <div class="p-6">
           <h4 class="text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-emerald-400"></span> AI 输出
@@ -444,6 +485,7 @@ onMounted(() => {
           </div>
         </div>
 
+        <!-- 错误信息（仅失败时显示） -->
         <div v-if="selectedLog.errorMessage" class="px-6 pb-6">
           <h4 class="text-sm font-medium text-red-400 mb-3">错误信息</h4>
           <div class="bg-red-500/5 border border-red-500/10 rounded-lg p-4 text-sm text-red-300">
@@ -455,6 +497,7 @@ onMounted(() => {
   </div>
 </template>
 
+<!-- Markdown预览样式 -->
 <style scoped>
 .markdown-body :deep(h1) {
   font-size: 1.5rem;

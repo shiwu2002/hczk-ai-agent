@@ -49,7 +49,7 @@ public class SecurityConfig {
                 // 放行 OPTIONS 预检请求
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 // 放行公开接口：认证、Webhook 回调、健康检查、运行时状态检测、错误页
-                .requestMatchers("/auth/**", "/webhook/**", "/health/**", "/agents/health", "/agents/*/health", "/error").permitAll()
+                .requestMatchers("/auth/**", "/webhook/**", "/health/**", "/agents/health", "/agents/*/health", "/billing/alipay/notify", "/error").permitAll()
                 // 其余请求均需认证
                 .anyRequest().authenticated()
             )

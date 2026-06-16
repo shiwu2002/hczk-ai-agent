@@ -13,6 +13,10 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.List;
 
+/**
+ * API Key管理控制器
+ * 提供API密钥的创建、查询、更新、删除及使用明细查询接口
+ */
 @RestController
 @RequestMapping("/api-keys")
 @RequiredArgsConstructor
@@ -22,11 +26,13 @@ public class ApiKeyController {
     private final ApiKeyService apiKeyService;
     private final BillingRecordMapper billingRecordMapper;
 
+    /** 获取所有API Key列表 */
     @GetMapping
     public Result<List<ApiKey>> getAllApiKeys() {
         return Result.success(apiKeyService.getAllApiKeys());
     }
 
+    /** 根据用户ID获取其API Key列表 */
     @GetMapping("/user/{userId}")
     public Result<List<ApiKey>> getApiKeysByUserId(@PathVariable String userId) {
         return Result.success(apiKeyService.getApiKeysByUserId(userId));
@@ -60,6 +66,7 @@ public class ApiKeyController {
         return Result.success(apiKeyService.updateApiKey(id, name, unitPrice, modelIds));
     }
 
+    /** 删除API Key */
     @DeleteMapping("/{id}")
     public Result<Void> deleteApiKey(@PathVariable Long id) {
         apiKeyService.deleteApiKey(id);
