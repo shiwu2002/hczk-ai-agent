@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useApiStore } from '@/stores/api'
-import { KeyRound, Plus, Search, Trash2, Copy, Check, X, Settings2 } from 'lucide-vue-next'
+import { KeyRound, Plus, Search, Trash2, Copy, Check, X, Settings2, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 const api = useApiStore()
 const loading = ref(false)
@@ -144,6 +144,18 @@ const filteredApiKeys = computed(() => {
     getUserName(k.userId).toLowerCase().includes(q)
   )
 })
+
+// 分页
+const currentPage = ref(1)
+const pageSize = ref(10)
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredApiKeys.value.length / pageSize.value)))
+const pagedApiKeys = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredApiKeys.value.slice(start, start + pageSize.value)
+})
+function goToPage(page) {
+  if (page >= 1 && page <= totalPages.value) currentPage.value = page
+}
 </script>
 
 <template>
@@ -182,7 +194,7 @@ const filteredApiKeys = computed(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="key in filteredApiKeys" :key="key.id" class="border-b border-white/5 hover:bg-white/5">
+          <tr v-for="key in pagedApiKeys" :key="key.id" class="border-b border-white/5 hover:bg-white/5">
             <td class="px-6 py-4">
               <div class="flex items-center gap-2">
                 <KeyRound class="w-4 h-4 text-emerald-400" />
@@ -215,6 +227,27 @@ const filteredApiKeys = computed(() => {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- 分页控件 -->
+    <div v-if="filteredApiKeys.length > pageSize" class="flex items-center justify-between pt-2">
+      <span class="text-sm text-slate-400">共 {{ filteredApiKeys.length }} 个 API Key</span>
+      <div class="flex items-center gap-1">
+        <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1"
+          class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronLeft class="w-4 h-4" />
+        </button>
+        <template v-for="p in totalPages" :key="p">
+          <button @click="goToPage(p)"
+            :class="['w-8 h-8 rounded-lg text-sm transition-colors', p === currentPage ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-300 hover:bg-white/10']">
+            {{ p }}
+          </button>
+        </template>
+        <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages"
+          class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronRight class="w-4 h-4" />
+        </button>
+      </div>
     </div>
 
     <div v-if="showAddModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">

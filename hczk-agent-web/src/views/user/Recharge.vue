@@ -1,8 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useApiStore } from '@/stores/api'
-import { Wallet, Zap, Crown, Rocket, Check, Clock } from 'lucide-vue-next'
+import { Wallet, Zap, Crown, Rocket, Check, Clock, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 const api = useApiStore()
@@ -14,6 +14,8 @@ const showSuccess = ref(false)
 const rechargeHistory = ref([])
 const customAmount = ref(null)
 const isCustom = ref(false)
+const currentPage = ref(1)
+const pageSize = 10
 
 const packages = ref([
   { id: 1, name: '入门包', amount: 100, bonus: 0, icon: Zap, popular: false },
@@ -65,7 +67,7 @@ async function recharge() {
 async function loadRechargeHistory() {
   try {
     const res = await api.get('/billing/my-recharges')
-    if (res.code === 200) rechargeHistory.value = (res.data || []).slice(0, 5)
+    if (res.code === 200) rechargeHistory.value = res.data || []
   } catch (e) {
     // ignore
   }
@@ -81,6 +83,17 @@ const paymentColorMap = {
   blue: 'bg-blue-500/20 text-blue-400',
   green: 'bg-green-500/20 text-green-400',
   amber: 'bg-amber-500/20 text-amber-400'
+}
+
+const totalPages = computed(() => Math.ceil(rechargeHistory.value.length / pageSize))
+const paginatedHistory = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return rechargeHistory.value.slice(start, start + pageSize)
+})
+
+function goToPage(page) {
+  if (page < 1 || page > totalPages.value) return
+  currentPage.value = page
 }
 
 onMounted(() => {
@@ -101,8 +114,9 @@ onMounted(() => {
     </div>
 
     <!-- Current Balance -->
-    <div class="glass-card p-6 glow-border">
-      <div class="flex items-center justify-between">
+    <div class="glass-card p-6 glow-border relative overflow-hidden">
+      <div class="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-cyan-500/5 to-transparent pointer-events-none"></div>
+      <div class="relative flex items-center justify-between">
         <div>
           <p class="text-sm text-slate-400">当前余额</p>
           <p class="text-4xl font-bold text-white mt-2">¥{{ Number(authStore.user?.balance || 0).toFixed(2) }}</p>
@@ -117,7 +131,7 @@ onMounted(() => {
     <!-- Package Selection -->
     <div>
       <h2 class="text-lg font-semibold text-white mb-4">选择充值套餐</h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <div v-for="pkg in packages" :key="pkg.id" @click="selectPackage(pkg)"
           :class="['glass-card p-6 cursor-pointer transition-all glow-border relative', selectedPackage?.id === pkg.id ? 'ring-2 ring-emerald-500 bg-emerald-500/5' : 'hover:bg-white/5']">
           <div v-if="pkg.popular" class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-xs font-medium">最受欢迎</div>
@@ -196,29 +210,50 @@ onMounted(() => {
         <Wallet class="w-10 h-10 text-slate-600 mb-2" />
         <p class="text-sm text-slate-500">暂无充值记录</p>
       </div>
-      <div v-else class="overflow-x-auto">
-        <table class="w-full">
-          <thead>
-            <tr class="border-b border-white/5">
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">时间</th>
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">金额</th>
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">支付方式</th>
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">状态</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-white/5">
-            <tr v-for="record in rechargeHistory" :key="record.id" class="hover:bg-white/5 transition-colors">
-              <td class="py-3 text-sm text-slate-500">{{ record.createdAt ? new Date(record.createdAt).toLocaleString() : '-' }}</td>
-              <td class="py-3 text-sm text-emerald-400 font-medium">+¥{{ Number(record.amount || 0).toFixed(2) }}</td>
-              <td class="py-3 text-sm text-slate-300">{{ record.paymentMethod === 'alipay' ? '支付宝' : record.paymentMethod === 'wechat' ? '微信支付' : record.paymentMethod === 'bank' ? '银行转账' : (record.paymentMethod || '-') }}</td>
-              <td class="py-3">
-                <span :class="['px-2 py-0.5 text-xs rounded-full', record.status === 'SUCCESS' || record.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400']">
-                  {{ record.status === 'SUCCESS' || record.status === 'COMPLETED' ? '成功' : record.status === 'PENDING' ? '处理中' : (record.status || '-') }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div v-else>
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-white/5">
+                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">时间</th>
+                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">金额</th>
+                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">支付方式</th>
+                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">状态</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-white/5">
+              <tr v-for="record in paginatedHistory" :key="record.id" class="hover:bg-white/5 transition-colors">
+                <td class="py-3 text-sm text-slate-500">{{ record.createdAt ? new Date(record.createdAt).toLocaleString() : '-' }}</td>
+                <td class="py-3 text-sm text-emerald-400 font-medium">+¥{{ Number(record.amount || 0).toFixed(2) }}</td>
+                <td class="py-3 text-sm text-slate-300">{{ record.paymentMethod === 'alipay' ? '支付宝' : record.paymentMethod === 'wechat' ? '微信支付' : record.paymentMethod === 'bank' ? '银行转账' : (record.paymentMethod || '-') }}</td>
+                <td class="py-3">
+                  <span :class="['px-2 py-0.5 text-xs rounded-full', record.status === 'SUCCESS' || record.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400']">
+                    {{ record.status === 'SUCCESS' || record.status === 'COMPLETED' ? '成功' : record.status === 'PENDING' ? '处理中' : (record.status || '-') }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="rechargeHistory.length > pageSize" class="flex items-center justify-between pt-4 mt-2 border-t border-white/5">
+          <span class="text-sm text-slate-400">共 {{ rechargeHistory.length }} 条记录</span>
+          <div class="flex items-center gap-1">
+            <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1"
+              class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+              <ChevronLeft class="w-4 h-4" />
+            </button>
+            <template v-for="p in totalPages" :key="p">
+              <button @click="goToPage(p)"
+                :class="['w-8 h-8 rounded-lg text-sm transition-colors', p === currentPage ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-300 hover:bg-white/10']">
+                {{ p }}
+              </button>
+            </template>
+            <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages"
+              class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+              <ChevronRight class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

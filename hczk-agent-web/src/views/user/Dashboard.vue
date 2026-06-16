@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useApiStore } from '@/stores/api'
-import { Wallet, BarChart3, KeyRound, Zap, ArrowUpRight } from 'lucide-vue-next'
+import { Wallet, BarChart3, KeyRound, Zap, ArrowUpRight, TrendingUp, TrendingDown } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 const api = useApiStore()
@@ -32,6 +32,47 @@ onMounted(async () => {
   }
 })
 
+// 计算昨日对比数据
+const yesterdayComparison = computed(() => {
+  const now = new Date()
+  const todayStr = now.toDateString()
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  const yesterdayStr = yesterday.toDateString()
+
+  let todayInput = 0, todayOutput = 0, todayCalls = 0
+  let yesterdayInput = 0, yesterdayOutput = 0, yesterdayCalls = 0
+
+  for (const r of usageRecords.value) {
+    if (!r.createdAt) continue
+    const d = new Date(r.createdAt).toDateString()
+    if (d === todayStr) {
+      todayInput += r.inputTokens || 0
+      todayOutput += r.outputTokens || 0
+      todayCalls++
+    } else if (d === yesterdayStr) {
+      yesterdayInput += r.inputTokens || 0
+      yesterdayOutput += r.outputTokens || 0
+      yesterdayCalls++
+    }
+  }
+
+  const todayTokens = todayInput + todayOutput
+  const yesterdayTokens = yesterdayInput + yesterdayOutput
+
+  function calcPercent(current, previous) {
+    if (previous === 0) return current > 0 ? 100 : 0
+    return Math.round(((current - previous) / previous) * 100)
+  }
+
+  return {
+    balance: { percent: 0, hasData: false }, // 余额无法从 usageRecords 计算
+    tokens: { percent: calcPercent(todayTokens, yesterdayTokens), hasData: yesterdayTokens > 0 },
+    apiKeys: { percent: 0, hasData: false }, // API Keys 数量无法按日对比
+    calls: { percent: calcPercent(todayCalls, yesterdayCalls), hasData: yesterdayCalls > 0 }
+  }
+})
+
 const stats = computed(() => {
   let totalInput = 0, totalOutput = 0
   for (const r of usageRecords.value) {
@@ -39,11 +80,12 @@ const stats = computed(() => {
     totalOutput += r.outputTokens || 0
   }
   const user = authStore.user
+  const comp = yesterdayComparison.value
   return [
-    { label: '账户余额', value: '¥' + (user?.balance || 0).toFixed(2), icon: Wallet, color: 'emerald' },
-    { label: '总Token消耗', value: (totalInput + totalOutput).toLocaleString(), sub: 'tokens', icon: BarChart3, color: 'cyan' },
-    { label: 'API Keys', value: apiKeys.value.length.toString(), sub: '个', icon: KeyRound, color: 'blue' },
-    { label: '总调用次数', value: usageRecords.value.length.toLocaleString(), sub: '次', icon: Zap, color: 'amber' }
+    { label: '账户余额', value: '¥' + (user?.balance || 0).toFixed(2), icon: Wallet, color: 'emerald', key: 'balance', trend: comp.balance },
+    { label: '总Token消耗', value: (totalInput + totalOutput).toLocaleString(), sub: 'tokens', icon: BarChart3, color: 'cyan', key: 'tokens', trend: comp.tokens },
+    { label: 'API Keys', value: apiKeys.value.length.toString(), sub: '个', icon: KeyRound, color: 'blue', key: 'apiKeys', trend: comp.apiKeys },
+    { label: '总调用次数', value: usageRecords.value.length.toLocaleString(), sub: '次', icon: Zap, color: 'amber', key: 'calls', trend: comp.calls }
   ]
 })
 
@@ -109,6 +151,76 @@ const outputPoints = computed(() =>
   dailyData.value.map((d, i) => `${lineX(i)},${lineY(d.output)}`).join(' ')
 )
 
+// 贝塞尔曲线平滑路径生成
+function generateSmoothPath(data, valueKey) {
+  const points = data.map((d, i) => ({ x: lineX(i), y: lineY(d[valueKey]) }))
+  if (points.length < 2) return ''
+  if (points.length === 2) {
+    return `M${points[0].x},${points[0].y} L${points[1].x},${points[1].y}`
+  }
+  let path = `M${points[0].x},${points[0].y}`
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)]
+    const p1 = points[i]
+    const p2 = points[i + 1]
+    const p3 = points[Math.min(points.length - 1, i + 2)]
+    const tension = 0.3
+    const cp1x = p1.x + (p2.x - p0.x) * tension
+    const cp1y = p1.y + (p2.y - p0.y) * tension
+    const cp2x = p2.x - (p3.x - p1.x) * tension
+    const cp2y = p2.y - (p3.y - p1.y) * tension
+    path += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`
+  }
+  return path
+}
+
+// 贝塞尔曲线面积路径生成（闭合到底部）
+function generateSmoothArea(data, valueKey) {
+  const points = data.map((d, i) => ({ x: lineX(i), y: lineY(d[valueKey]) }))
+  if (points.length < 2) return ''
+  const bottomY = chartPadding.top + plotHeight
+  let path = `M${points[0].x},${bottomY} L${points[0].x},${points[0].y}`
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)]
+    const p1 = points[i]
+    const p2 = points[i + 1]
+    const p3 = points[Math.min(points.length - 1, i + 2)]
+    const tension = 0.3
+    const cp1x = p1.x + (p2.x - p0.x) * tension
+    const cp1y = p1.y + (p2.y - p0.y) * tension
+    const cp2x = p2.x - (p3.x - p1.x) * tension
+    const cp2y = p2.y - (p3.y - p1.y) * tension
+    path += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`
+  }
+  path += ` L${points[points.length - 1].x},${bottomY} Z`
+  return path
+}
+
+const inputSmoothPath = computed(() => generateSmoothPath(dailyData.value, 'input'))
+const outputSmoothPath = computed(() => generateSmoothPath(dailyData.value, 'output'))
+const inputAreaPath = computed(() => generateSmoothArea(dailyData.value, 'input'))
+const outputAreaPath = computed(() => generateSmoothArea(dailyData.value, 'output'))
+
+// Tooltip 位置计算（防止超出视口）
+function tooltipPosition(index, value, type) {
+  const x = lineX(index)
+  const y = lineY(value)
+  const tooltipW = 96
+  const tooltipH = 24
+  const padding = 8
+
+  // 水平位置：防止左右超出
+  let tx = x - tooltipW / 2
+  if (tx < chartPadding.left) tx = chartPadding.left
+  if (tx + tooltipW > chartWidth - chartPadding.right) tx = chartWidth - chartPadding.right - tooltipW
+
+  // 垂直位置：默认在点上方，空间不足则放下方
+  let ty = y - tooltipH - padding
+  if (ty < chartPadding.top) ty = y + padding
+
+  return { x: tx, y: ty, textX: tx + tooltipW / 2, textY: ty + tooltipH / 2 + 4 }
+}
+
 function formatTokenShort(val) {
   if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M'
   if (val >= 1000) return (val / 1000).toFixed(1) + 'K'
@@ -159,25 +271,36 @@ const colorMap = {
       </div>
 
       <!-- Stats Cards -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div v-for="stat in stats" :key="stat.label" class="glass-card p-6 glow-border">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        <div v-for="stat in stats" :key="stat.label" class="glass-card p-4 md:p-6 glow-border">
           <div class="flex items-start justify-between">
-            <div>
-              <p class="text-sm text-slate-400">{{ stat.label }}</p>
-              <p class="text-2xl font-bold text-white mt-2">{{ stat.value }}</p>
-              <p v-if="stat.sub" class="text-xs text-slate-500 mt-1">{{ stat.sub }}</p>
+            <div class="min-w-0">
+              <p class="text-xs md:text-sm text-slate-400">{{ stat.label }}</p>
+              <p class="text-lg md:text-2xl font-bold text-white mt-1 md:mt-2 truncate">{{ stat.value }}</p>
+              <p v-if="stat.sub" class="text-xs text-slate-500 mt-0.5">{{ stat.sub }}</p>
+              <!-- 变化趋势 -->
+              <div v-if="stat.trend?.hasData" class="flex items-center gap-1 mt-1.5">
+                <component
+                  :is="stat.trend.percent >= 0 ? TrendingUp : TrendingDown"
+                  :class="['w-3.5 h-3.5', stat.trend.percent >= 0 ? 'text-emerald-400' : 'text-red-400']"
+                />
+                <span :class="['text-xs font-medium', stat.trend.percent >= 0 ? 'text-emerald-400' : 'text-red-400']">
+                  {{ stat.trend.percent >= 0 ? '↑' : '↓' }}{{ Math.abs(stat.trend.percent) }}%
+                </span>
+                <span class="text-xs text-slate-500">较昨日</span>
+              </div>
             </div>
-            <div :class="['w-10 h-10 rounded-lg flex items-center justify-center', colorMap[stat.color].bg]">
-              <component :is="stat.icon" :class="['w-5 h-5', colorMap[stat.color].text]" />
+            <div :class="['w-9 h-9 md:w-10 md:h-10 rounded-lg flex items-center justify-center flex-shrink-0', colorMap[stat.color].bg]">
+              <component :is="stat.icon" :class="['w-4 h-4 md:w-5 md:h-5', colorMap[stat.color].text]" />
             </div>
           </div>
         </div>
       </div>
 
       <!-- Chart + Activity -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         <!-- Usage Trend -->
-        <div class="lg:col-span-2 glass-card p-6">
+        <div class="lg:col-span-2 glass-card p-4 md:p-6">
           <div class="flex items-center justify-between mb-6">
             <div>
               <h3 class="text-lg font-semibold text-white">用量趋势</h3>
@@ -199,7 +322,7 @@ const colorMap = {
             <p class="text-sm text-slate-500">暂无消耗数据</p>
           </div>
           <div v-else class="w-full overflow-x-auto">
-            <svg :viewBox="`0 0 ${chartWidth} ${chartHeight}`" class="w-full" style="min-width: 500px;" preserveAspectRatio="xMidYMid meet">
+            <svg :viewBox="`0 0 ${chartWidth} ${chartHeight}`" class="w-full" style="min-width: 400px;" preserveAspectRatio="xMidYMid meet">
               <!-- Grid lines -->
               <line
                 v-for="tick in lineYTicks"
@@ -242,30 +365,30 @@ const colorMap = {
                   <stop offset="100%" stop-color="#10b981" stop-opacity="0" />
                 </linearGradient>
               </defs>
-              <!-- Area fill for input -->
-              <polygon
-                :points="`${chartPadding.left},${chartPadding.top + plotHeight} ${inputPoints} ${lineX(dailyData.length - 1)},${chartPadding.top + plotHeight}`"
+              <!-- Area fill for input (smooth) -->
+              <path
+                :d="inputAreaPath"
                 fill="url(#dashInputGradient)"
                 opacity="0.15"
               />
-              <!-- Area fill for output -->
-              <polygon
-                :points="`${chartPadding.left},${chartPadding.top + plotHeight} ${outputPoints} ${lineX(dailyData.length - 1)},${chartPadding.top + plotHeight}`"
+              <!-- Area fill for output (smooth) -->
+              <path
+                :d="outputAreaPath"
                 fill="url(#dashOutputGradient)"
                 opacity="0.15"
               />
-              <!-- Input line -->
-              <polyline
-                :points="inputPoints"
+              <!-- Input line (smooth bezier) -->
+              <path
+                :d="inputSmoothPath"
                 fill="none"
                 stroke="#06b6d4"
                 stroke-width="2.5"
                 stroke-linecap="round"
                 stroke-linejoin="round"
               />
-              <!-- Output line -->
-              <polyline
-                :points="outputPoints"
+              <!-- Output line (smooth bezier) -->
+              <path
+                :d="outputSmoothPath"
                 fill="none"
                 stroke="#10b981"
                 stroke-width="2.5"
@@ -289,8 +412,8 @@ const colorMap = {
                 <!-- Tooltip for input -->
                 <g v-if="hoveredPoint?.dayIndex === i && hoveredPoint?.type === 'input'" class="pointer-events-none">
                   <rect
-                    :x="lineX(i) - 48"
-                    :y="lineY(day.input) - 32"
+                    :x="tooltipPosition(i, day.input, 'input').x"
+                    :y="tooltipPosition(i, day.input, 'input').y"
                     width="96"
                     height="24"
                     rx="4"
@@ -299,8 +422,8 @@ const colorMap = {
                     stroke-width="1"
                   />
                   <text
-                    :x="lineX(i)"
-                    :y="lineY(day.input) - 16"
+                    :x="tooltipPosition(i, day.input, 'input').textX"
+                    :y="tooltipPosition(i, day.input, 'input').textY"
                     text-anchor="middle"
                     fill="#06b6d4"
                     font-size="11"
@@ -324,8 +447,8 @@ const colorMap = {
                 <!-- Tooltip for output -->
                 <g v-if="hoveredPoint?.dayIndex === i && hoveredPoint?.type === 'output'" class="pointer-events-none">
                   <rect
-                    :x="lineX(i) - 48"
-                    :y="lineY(day.output) - 32"
+                    :x="tooltipPosition(i, day.output, 'output').x"
+                    :y="tooltipPosition(i, day.output, 'output').y"
                     width="96"
                     height="24"
                     rx="4"
@@ -334,8 +457,8 @@ const colorMap = {
                     stroke-width="1"
                   />
                   <text
-                    :x="lineX(i)"
-                    :y="lineY(day.output) - 16"
+                    :x="tooltipPosition(i, day.output, 'output').textX"
+                    :y="tooltipPosition(i, day.output, 'output').textY"
                     text-anchor="middle"
                     fill="#10b981"
                     font-size="11"
@@ -347,18 +470,30 @@ const colorMap = {
         </div>
 
         <!-- Recent Activity -->
-        <div class="glass-card p-6">
+        <div class="glass-card p-4 md:p-6">
           <h3 class="text-lg font-semibold text-white mb-4">最近动态</h3>
           <div v-if="recentActivity.length === 0" class="text-sm text-slate-500 py-8 text-center">暂无记录</div>
           <div v-else class="space-y-3">
-            <div v-for="(activity, i) in recentActivity" :key="i" class="flex items-start gap-3">
-              <div :class="['w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0', activity.type === 'RECHARGE' ? 'bg-emerald-500/10' : 'bg-white/5']">
-                <component :is="activity.type === 'RECHARGE' ? Wallet : Zap" :class="['w-4 h-4', activity.type === 'RECHARGE' ? 'text-emerald-400' : 'text-slate-400']" />
+            <div v-for="(activity, i) in recentActivity" :key="i" class="flex items-start gap-3 group">
+              <div :class="[
+                'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-transform duration-300 group-hover:scale-110',
+                activity.type === 'RECHARGE' ? 'bg-emerald-500/10' : 'bg-white/5'
+              ]">
+                <component
+                  :is="activity.type === 'RECHARGE' ? Wallet : Zap"
+                  :class="[
+                    'w-4 h-4 transition-all duration-300',
+                    activity.type === 'RECHARGE' ? 'text-emerald-400 group-hover:rotate-12' : 'text-slate-400 group-hover:text-cyan-400'
+                  ]"
+                />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center justify-between">
                   <p class="text-sm text-white truncate">{{ activity.action }}</p>
-                  <span :class="['text-sm font-medium flex-shrink-0 ml-2', activity.amount >= 0 ? 'text-emerald-400' : 'text-orange-400']">
+                  <span :class="[
+                    'text-sm font-medium flex-shrink-0 ml-2 transition-colors duration-200',
+                    activity.type === 'RECHARGE' ? 'text-emerald-400' : (activity.amount >= 0 ? 'text-cyan-400' : 'text-red-400')
+                  ]">
                     {{ activity.amount >= 0 ? '+' : '' }}{{ activity.amount.toFixed(2) }}
                   </span>
                 </div>

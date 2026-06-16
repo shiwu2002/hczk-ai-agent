@@ -145,6 +145,8 @@ public class ChatService {
             SseEmitter emitter = new SseEmitter(0L);
             AtomicBoolean completed = new AtomicBoolean(false);
             StringBuilder outputContent = new StringBuilder();
+            StringBuilder reasoningContent = new StringBuilder();
+            AtomicBoolean inThinkingPhase = new AtomicBoolean(false);
             long startTime = System.currentTimeMillis();
 
             // SSE生命周期回调
@@ -178,15 +180,37 @@ public class ChatService {
                     chatResponse -> {
                         if (completed.get()) return;
                         try {
-                            String content = chatResponse.getResult().getOutput().getText();
+                            var result = chatResponse.getResult();
+                            var output = result.getOutput();
+                            String content = output.getText();
+                            // 通过metadata中的reasoning标记区分思考内容和回复内容
+                            boolean isReasoning = Boolean.TRUE.equals(output.getMetadata().get("reasoning"));
+
                             if (content != null && !content.isEmpty()) {
-                                outputContent.append(content);
-                                // OpenAI 标准流式格式
-                                String chunk = String.format(
-                                    "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%d,\"model\":\"%s\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"%s\"},\"finish_reason\":null}]}",
-                                    chatId, createdSeconds, modelName, escapeJson(content)
-                                );
-                                emitter.send(SseEmitter.event().data(chunk));
+                                if (isReasoning) {
+                                    // 思考内容
+                                    reasoningContent.append(content);
+                                    // 发送思考内容的SSE事件（DashScope兼容格式：reasoning_content字段）
+                                    String chunk = String.format(
+                                        "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%d,\"model\":\"%s\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"%s\"},\"finish_reason\":null}]}",
+                                        chatId, createdSeconds, modelName, escapeJson(content)
+                                    );
+                                    emitter.send(SseEmitter.event().data(chunk));
+                                } else {
+                                    // 正式回复内容
+                                    if (inThinkingPhase.get()) {
+                                        inThinkingPhase.set(false);
+                                        log.info("思考阶段结束，思考内容: {}字符", reasoningContent.length());
+                                    }
+                                    outputContent.append(content);
+                                    // OpenAI 标准流式格式
+                                    String chunk = String.format(
+                                        "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%d,\"model\":\"%s\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"%s\"},\"finish_reason\":null}]}",
+                                        chatId, createdSeconds, modelName, escapeJson(content)
+                                    );
+                                    emitter.send(SseEmitter.event().data(chunk));
+                                }
+                                log.debug("SSE发送chunk: {}字符, reasoning={}", content.length(), isReasoning);
                             }
                         } catch (IOException e) {
                             completed.set(true);
@@ -197,14 +221,25 @@ public class ChatService {
                     error -> {
                         log.error("流式调用失败: {}", error.getMessage(), error);
                         if (completed.compareAndSet(false, true)) {
+                            try {
+                                // 发送错误信息给客户端（OpenAI兼容格式）
+                                String errorChunk = String.format(
+                                    "{\"id\":\"%s\",\"object\":\"chat.completion.chunk\",\"created\":%d,\"model\":\"%s\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"[错误] %s\"},\"finish_reason\":\"stop\"}]}",
+                                    chatId, createdSeconds, modelName, escapeJson(error.getMessage() != null ? error.getMessage() : "未知错误")
+                                );
+                                emitter.send(SseEmitter.event().data(errorChunk));
+                                emitter.send(SseEmitter.event().data("[DONE]"));
+                                emitter.complete();
+                            } catch (IOException ignored) {
+                            }
                             saveChatLog(finalModel, effectiveMessage, outputContent.toString(),
                                     inputTokens, finalUserId, finalApiKeyId, startTime, "failed", error.getMessage(), BigDecimal.ZERO);
-                            emitter.completeWithError(error);
                             chatModelFactory.clearRequestThinking();
                         }
                     },
                     // 完成回调：发送[DONE]标记，触发计费
                     () -> {
+                        log.info("流式响应完成，总输出: {}字符, 思考内容: {}字符", outputContent.length(), reasoningContent.length());
                         if (completed.compareAndSet(false, true)) {
                             try {
                                 // 发送最后一个 chunk（finish_reason: stop）
@@ -337,14 +372,14 @@ public class ChatService {
      * 根据请求和API Key绑定的模型确定调用的模型
      *
      * 优先级：
-     * 1. 请求指定了模型ID → 校验是否在绑定范围内
-     * 2. 请求指定了模型名称 → 按名称查找并校验绑定范围
-     * 3. 未指定模型 → 使用API Key绑定的第一个模型
+     * 1. 请求指定了模型ID → 校验是否在绑定范围内（model_ids为空时允许所有）
+     * 2. 请求指定了模型名称 → 按名称查找并校验绑定范围（model_ids为空时允许所有）
+     * 3. 未指定模型 → 使用API Key绑定的第一个模型，model_ids为空时使用第一个可用模型
      *
      * @param request 聊天请求（可能包含modelId或modelName）
      * @param apiKey  API Key实体（包含绑定的modelIds列表）
      * @return 确定的AI模型
-     * @throws RuntimeException 模型不在绑定范围、模型不存在、未绑定任何模型
+     * @throws RuntimeException 模型不在绑定范围、模型不存在、无可用模型
      */
     private AiModel resolveModel(ChatRequest request, ApiKey apiKey) {
         List<Long> boundModelIds = apiKey.getModelIds();
@@ -354,7 +389,7 @@ public class ChatService {
 
         // 优先级1：指定了模型ID
         if (resolvedModelId != null) {
-            // 校验是否在API Key绑定范围内
+            // 校验是否在API Key绑定范围内（model_ids为空时允许访问所有模型）
             if (boundModelIds != null && !boundModelIds.isEmpty() && !boundModelIds.contains(resolvedModelId)) {
                 throw new RuntimeException("模型ID " + resolvedModelId + " 不在API Key绑定范围内");
             }
@@ -375,7 +410,7 @@ public class ChatService {
             if (model == null) {
                 throw new RuntimeException("模型不存在: " + modelName);
             }
-            // 校验是否在API Key绑定范围内
+            // 校验是否在API Key绑定范围内（model_ids为空时允许访问所有模型）
             if (boundModelIds != null && !boundModelIds.isEmpty() && !boundModelIds.contains(model.getId())) {
                 throw new RuntimeException("模型 " + modelName + " 不在API Key绑定范围内");
             }
@@ -383,16 +418,25 @@ public class ChatService {
             return model;
         }
 
-        // 优先级3：未指定模型，使用API Key绑定的第一个模型
-        if (boundModelIds == null || boundModelIds.isEmpty()) {
-            throw new RuntimeException("API Key未绑定任何模型，请先配置");
+        // 优先级3：未指定模型，使用API Key绑定的第一个模型，或第一个可用模型
+        if (boundModelIds != null && !boundModelIds.isEmpty()) {
+            AiModel model = aiModelMapper.selectById(boundModelIds.get(0));
+            if (model == null) {
+                throw new RuntimeException("API Key绑定的模型不存在");
+            }
+            log.info("使用API Key默认模型: modelId={}, modelName={}", model.getId(), model.getName());
+            return model;
         }
-        AiModel model = aiModelMapper.selectById(boundModelIds.get(0));
-        if (model == null) {
-            throw new RuntimeException("API Key绑定的模型不存在");
+        // model_ids为空时，使用第一个可用模型
+        AiModel defaultModel = aiModelMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AiModel>()
+                        .eq(AiModel::getStatus, ModelStatus.ACTIVE)
+                        .last("LIMIT 1"));
+        if (defaultModel == null) {
+            throw new RuntimeException("没有可用的模型");
         }
-        log.info("使用API Key默认模型: modelId={}, modelName={}", model.getId(), model.getName());
-        return model;
+        log.info("API Key未绑定模型，使用默认可用模型: modelId={}, modelName={}", defaultModel.getId(), defaultModel.getName());
+        return defaultModel;
     }
 
     /**

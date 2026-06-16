@@ -205,7 +205,20 @@ public class OpenAiCompatibleChatModel implements ChatModel {
 
             return Mono.fromFuture(future)
             .flatMapMany(response -> {
-                log.info("[SDK] HTTP连接建立，状态: {}，耗时: {}ms", response.statusCode(), System.currentTimeMillis() - sdkStartTime);
+                int statusCode = response.statusCode();
+                log.info("[SDK] HTTP连接建立，状态: {}，耗时: {}ms", statusCode, System.currentTimeMillis() - sdkStartTime);
+                if (statusCode >= 400) {
+                    // HTTP错误：收集完整响应体用于错误信息
+                    StringBuilder errorBody = new StringBuilder();
+                    try {
+                        response.body().forEach(line -> errorBody.append(line));
+                    } catch (Exception e) {
+                        errorBody.append("(无法读取错误响应体: ").append(e.getMessage()).append(")");
+                    }
+                    String errorMsg = errorBody.length() > 0 ? errorBody.toString() : "(空响应体)";
+                    log.error("[SDK] API返回HTTP错误: status={}, body={}", statusCode, errorMsg);
+                    return Flux.error(new RuntimeException("AI 服务调用失败 (HTTP " + statusCode + "): " + errorMsg));
+                }
                 return Flux.fromStream(response.body());
             })
             .filter(line -> line != null && !line.trim().isEmpty())
@@ -223,13 +236,18 @@ public class OpenAiCompatibleChatModel implements ChatModel {
                             if (!thinkingDetected[0]) {
                                 thinkingDetected[0] = true;
                                 thinkingStartTime[0] = System.currentTimeMillis();
-                                log.warn("[SDK] ⚠️ 检测到思考模式(reasoning_content)！enableThinking={} 但模型仍在思考，这会导致延迟！", getEffectiveThinking());
+                                log.info("[SDK] 检测到思考模式(reasoning_content)，enableThinking={}", getEffectiveThinking());
                             }
                             thinkingChunkCount[0]++;
                             if (thinkingChunkCount[0] % 20 == 0) {
-                                log.info("[SDK] 思考阶段进行中，已收到 {} 个思考chunk，耗时: {}ms", thinkingChunkCount[0], System.currentTimeMillis() - thinkingStartTime[0]);
+                                log.debug("[SDK] 思考阶段进行中，已收到 {} 个思考chunk，耗时: {}ms", thinkingChunkCount[0], System.currentTimeMillis() - thinkingStartTime[0]);
                             }
-                            return Flux.empty();
+                            // 将思考内容通过metadata标记传递，不丢弃
+                            Map<String, Object> metadata = new HashMap<>();
+                            metadata.put("reasoning", true);
+                            AssistantMessage thinkingMessage = new AssistantMessage(delta.getReasoningContent(), metadata);
+                            Generation generation = new Generation(thinkingMessage);
+                            return Flux.just(new ChatResponse(Collections.singletonList(generation)));
                         }
 
                         String content = extractContent(choice);
@@ -237,7 +255,7 @@ public class OpenAiCompatibleChatModel implements ChatModel {
                             if (!sdkFirstToken[0]) {
                                 sdkFirstToken[0] = true;
                                 if (thinkingDetected[0]) {
-                                    log.warn("[SDK] ⚠️ 思考阶段结束，思考耗时: {}ms ({}个chunk)，首token总耗时: {}ms",
+                                    log.info("[SDK] 思考阶段结束，思考耗时: {}ms ({}个chunk)，首token总耗时: {}ms",
                                             System.currentTimeMillis() - thinkingStartTime[0], thinkingChunkCount[0],
                                             System.currentTimeMillis() - sdkStartTime);
                                 } else {
@@ -623,13 +641,10 @@ public class OpenAiCompatibleChatModel implements ChatModel {
             req.setTools(apiTools);
             req.setToolChoice("auto");
         }
-        if (enableThinking != null) {
-            req.setEnableThinking(enableThinking);
-        }
-        // 请求级 thinking 覆盖实例级配置
+        // 只在 enable_thinking=true 时发送该参数，避免不支持该参数的模型返回400错误
         Boolean effectiveThinking = getEffectiveThinking();
-        if (effectiveThinking != null) {
-            req.setEnableThinking(effectiveThinking);
+        if (Boolean.TRUE.equals(effectiveThinking)) {
+            req.setEnableThinking(true);
         }
         return req;
     }

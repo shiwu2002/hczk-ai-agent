@@ -1,15 +1,16 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
   LayoutDashboard, Bot, BarChart3, CreditCard, Wallet,
-  UserCircle, LogOut, ChevronRight, Sparkles
+  UserCircle, LogOut, ChevronRight, Sparkles, Menu, X
 } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const sidebarOpen = ref(false)
 
 const navItems = [
   { path: '/dashboard', name: '仪表盘', icon: LayoutDashboard },
@@ -28,22 +29,35 @@ function logout() {
   authStore.logout()
   router.push('/login')
 }
+
+const currentNavName = computed(() => navItems.find(i => isActive(i.path))?.name || '')
 </script>
 
 <template>
   <div class="min-h-screen flex bg-[#0a0f1c]">
+    <!-- 移动端遮罩 -->
+    <div v-if="sidebarOpen" class="fixed inset-0 bg-black/50 z-30 lg:hidden" @click="sidebarOpen = false"></div>
+
     <!-- Sidebar -->
-    <aside class="w-64 bg-[#111827]/80 border-r border-white/5 flex flex-col backdrop-blur-xl fixed h-full z-20">
+    <aside :class="[
+      'w-64 bg-[#111827]/80 border-r border-white/5 flex flex-col backdrop-blur-xl fixed h-full z-40 transition-transform duration-300',
+      sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+    ]">
       <!-- Logo -->
       <div class="p-6 border-b border-white/5">
-        <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center">
-            <Sparkles class="w-5 h-5 text-white" />
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center">
+              <Sparkles class="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 class="font-bold text-white text-lg leading-tight">智联平台</h1>
+              <p class="text-xs text-slate-500">用户控制台</p>
+            </div>
           </div>
-          <div>
-            <h1 class="font-bold text-white text-lg leading-tight">智联平台</h1>
-            <p class="text-xs text-slate-500">用户控制台</p>
-          </div>
+          <button @click="sidebarOpen = false" class="lg:hidden p-1 text-slate-400 hover:text-white">
+            <X class="w-5 h-5" />
+          </button>
         </div>
       </div>
 
@@ -53,6 +67,7 @@ function logout() {
           v-for="item in navItems"
           :key="item.path"
           :to="item.path"
+          @click="sidebarOpen = false"
           :class="['nav-item', isActive(item.path) ? 'active' : '']"
         >
           <component :is="item.icon" class="w-5 h-5" />
@@ -76,26 +91,31 @@ function logout() {
     </aside>
 
     <!-- Main Content -->
-    <main class="flex-1 ml-64">
+    <main class="flex-1 lg:ml-64 min-w-0">
       <!-- Header -->
-      <header class="h-16 border-b border-white/5 bg-[#0a0f1c]/80 backdrop-blur-xl flex items-center justify-between px-8 sticky top-0 z-10">
-        <div class="flex items-center gap-2 text-sm text-slate-400">
-          <span>用户端</span>
-          <ChevronRight class="w-4 h-4" />
-          <span class="text-white">{{ navItems.find(i => isActive(i.path))?.name || '' }}</span>
+      <header class="h-16 border-b border-white/5 bg-[#0a0f1c]/80 backdrop-blur-xl flex items-center justify-between px-4 lg:px-8 sticky top-0 z-10">
+        <div class="flex items-center gap-3">
+          <button @click="sidebarOpen = true" class="lg:hidden p-2 -ml-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5">
+            <Menu class="w-5 h-5" />
+          </button>
+          <div class="flex items-center gap-2 text-sm text-slate-400">
+            <span class="hidden sm:inline">用户端</span>
+            <ChevronRight class="w-4 h-4 hidden sm:block" />
+            <span class="text-white">{{ currentNavName }}</span>
+          </div>
         </div>
         <div class="flex items-center gap-4">
           <div class="flex items-center gap-2">
             <div class="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white text-sm font-bold">
               {{ authStore.currentUser?.name?.[0] || 'U' }}
             </div>
-            <span class="text-sm text-slate-300">{{ authStore.currentUser?.name || 'User' }}</span>
+            <span class="text-sm text-slate-300 hidden sm:inline">{{ authStore.currentUser?.name || 'User' }}</span>
           </div>
         </div>
       </header>
 
       <!-- Page Content -->
-      <div class="p-8">
+      <div class="p-4 lg:p-8">
         <RouterView />
       </div>
     </main>

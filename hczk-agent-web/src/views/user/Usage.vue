@@ -1,12 +1,16 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useApiStore } from '@/stores/api'
-import { BarChart3, TrendingUp, Zap, Wallet } from 'lucide-vue-next'
+import { BarChart3, TrendingUp, Zap, Wallet, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 const api = useApiStore()
 const loading = ref(false)
 const usageRecords = ref([])
 const hoveredPoint = ref(null)
+
+// Pagination
+const currentPage = ref(1)
+const pageSize = 15
 
 onMounted(async () => {
   loading.value = true
@@ -92,13 +96,51 @@ function lineY(value) {
   return chartPadding.top + plotHeight - (value / lineChartMax.value) * plotHeight
 }
 
-const inputPoints = computed(() =>
-  dailyData.value.map((d, i) => `${lineX(i)},${lineY(d.input)}`).join(' ')
-)
+// Smooth bezier curve path generation
+function generateSmoothPath(data, key) {
+  const points = data.map((d, i) => ({ x: lineX(i), y: lineY(d[key]) }))
+  if (points.length < 2) return ''
+  let path = `M${points[0].x},${points[0].y}`
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)]
+    const p1 = points[i]
+    const p2 = points[i + 1]
+    const p3 = points[Math.min(points.length - 1, i + 2)]
+    const cp1x = p1.x + (p2.x - p0.x) / 6
+    const cp1y = p1.y + (p2.y - p0.y) / 6
+    const cp2x = p2.x - (p3.x - p1.x) / 6
+    const cp2y = p2.y - (p3.y - p1.y) / 6
+    path += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`
+  }
+  return path
+}
 
-const outputPoints = computed(() =>
-  dailyData.value.map((d, i) => `${lineX(i)},${lineY(d.output)}`).join(' ')
-)
+// Smooth area path (for gradient fill under curve)
+function generateSmoothAreaPath(data, key) {
+  const points = data.map((d, i) => ({ x: lineX(i), y: lineY(d[key]) }))
+  if (points.length < 2) return ''
+  const baseline = chartPadding.top + plotHeight
+  let path = `M${points[0].x},${baseline}`
+  path += ` L${points[0].x},${points[0].y}`
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)]
+    const p1 = points[i]
+    const p2 = points[i + 1]
+    const p3 = points[Math.min(points.length - 1, i + 2)]
+    const cp1x = p1.x + (p2.x - p0.x) / 6
+    const cp1y = p1.y + (p2.y - p0.y) / 6
+    const cp2x = p2.x - (p3.x - p1.x) / 6
+    const cp2y = p2.y - (p3.y - p1.y) / 6
+    path += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`
+  }
+  path += ` L${points[points.length - 1].x},${baseline} Z`
+  return path
+}
+
+const inputLinePath = computed(() => generateSmoothPath(dailyData.value, 'input'))
+const outputLinePath = computed(() => generateSmoothPath(dailyData.value, 'output'))
+const inputAreaPath = computed(() => generateSmoothAreaPath(dailyData.value, 'input'))
+const outputAreaPath = computed(() => generateSmoothAreaPath(dailyData.value, 'output'))
 
 function formatTokenShort(val) {
   if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M'
@@ -115,7 +157,7 @@ const donutData = computed(() => {
   const input = stats.value.totalInput
   const output = stats.value.totalOutput
   const total = input + output
-  if (total === 0) return { inputRatio: 0, outputRatio: 0, total: 0, inputOffset: 0, outputOffset: 0 }
+  if (total === 0) return { inputRatio: 0, outputRatio: 0, total: 0, inputOffset: 0, outputOffset: 0, inputDasharray: '0 0', outputDasharray: '0 0' }
   const inputRatio = input / total
   const outputRatio = output / total
   const inputLength = inputRatio * donutCircumference
@@ -127,7 +169,9 @@ const donutData = computed(() => {
     inputLength,
     outputLength,
     inputOffset: 0,
-    outputOffset: -inputLength
+    outputOffset: -inputLength,
+    inputDasharray: `${inputLength} ${donutCircumference - inputLength}`,
+    outputDasharray: `${outputLength} ${donutCircumference - outputLength}`
   }
 })
 
@@ -137,6 +181,40 @@ function setHoveredPoint(dayIndex, type) {
 
 function clearHoveredPoint() {
   hoveredPoint.value = null
+}
+
+// Tooltip position calculation to prevent viewport overflow
+function getTooltipX(index) {
+  const x = lineX(index)
+  const tooltipWidth = 96
+  const halfWidth = tooltipWidth / 2
+  // Clamp within chart area
+  const minX = chartPadding.left + halfWidth
+  const maxX = chartWidth - chartPadding.right - halfWidth
+  return Math.max(minX, Math.min(maxX, x))
+}
+
+function getTooltipY(value) {
+  const y = lineY(value)
+  const tooltipHeight = 24
+  const gap = 12
+  // Prefer above the point; if too close to top, show below
+  if (y - tooltipHeight - gap < chartPadding.top) {
+    return y + gap
+  }
+  return y - tooltipHeight - gap
+}
+
+// Pagination computed
+const totalPages = computed(() => Math.ceil(usageRecords.value.length / pageSize))
+const pagedRecords = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return usageRecords.value.slice(start, start + pageSize)
+})
+
+function goToPage(page) {
+  if (page < 1 || page > totalPages.value) return
+  currentPage.value = page
 }
 </script>
 
@@ -157,27 +235,27 @@ function clearHoveredPoint() {
       </div>
 
       <!-- Stats Cards -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div v-for="card in statCards" :key="card.label" class="glass-card p-6 glow-border">
+      <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
+        <div v-for="card in statCards" :key="card.label" class="glass-card p-4 md:p-6 glow-border">
           <div class="flex items-start justify-between">
             <div>
-              <p class="text-sm text-slate-400">{{ card.label }}</p>
-              <p class="text-2xl font-bold text-white mt-2">{{ card.value }}</p>
-              <p v-if="card.sub" class="text-xs text-slate-500 mt-1">{{ card.sub }}</p>
+              <p class="text-xs md:text-sm text-slate-400">{{ card.label }}</p>
+              <p class="text-lg md:text-2xl font-bold text-white mt-1 md:mt-2">{{ card.value }}</p>
+              <p v-if="card.sub" class="text-xs text-slate-500 mt-0.5 md:mt-1">{{ card.sub }}</p>
             </div>
-            <div :class="['w-10 h-10 rounded-lg flex items-center justify-center', colorMap[card.color].bg]">
-              <component :is="card.icon" :class="['w-5 h-5', colorMap[card.color].text]" />
+            <div :class="['w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center', colorMap[card.color].bg]">
+              <component :is="card.icon" :class="['w-4 h-4 md:w-5 md:h-5', colorMap[card.color].text]" />
             </div>
           </div>
         </div>
       </div>
 
       <!-- Daily Trend Line Chart -->
-      <div class="glass-card p-6">
-        <div class="flex items-center justify-between mb-6">
+      <div class="glass-card p-4 md:p-6">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-4 md:mb-6 gap-2">
           <div>
-            <h3 class="text-lg font-semibold text-white">每日消耗趋势</h3>
-            <p class="text-sm text-slate-400 mt-1">近7天 Token 消耗</p>
+            <h3 class="text-base md:text-lg font-semibold text-white">每日消耗趋势</h3>
+            <p class="text-xs md:text-sm text-slate-400 mt-1">近7天 Token 消耗</p>
           </div>
           <div class="flex items-center gap-4">
             <div class="flex items-center gap-1.5">
@@ -195,6 +273,17 @@ function clearHoveredPoint() {
         </div>
         <div v-else class="w-full overflow-x-auto">
           <svg :viewBox="`0 0 ${chartWidth} ${chartHeight}`" class="w-full" style="min-width: 500px;" preserveAspectRatio="xMidYMid meet">
+            <!-- Gradient defs -->
+            <defs>
+              <linearGradient id="inputGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="100%" stop-color="#06b6d4" stop-opacity="0" />
+              </linearGradient>
+              <linearGradient id="outputGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#10b981" />
+                <stop offset="100%" stop-color="#10b981" stop-opacity="0" />
+              </linearGradient>
+            </defs>
             <!-- Grid lines -->
             <line
               v-for="tick in lineYTicks"
@@ -226,41 +315,30 @@ function clearHoveredPoint() {
               fill="#64748b"
               font-size="11"
             >{{ day.label }}</text>
-            <!-- Area fill for input -->
-            <polygon
-              :points="`${chartPadding.left},${chartPadding.top + plotHeight} ${inputPoints} ${lineX(dailyData.length - 1)},${chartPadding.top + plotHeight}`"
+            <!-- Area fill for input (smooth) -->
+            <path
+              :d="inputAreaPath"
               fill="url(#inputGradient)"
               opacity="0.15"
             />
-            <!-- Area fill for output -->
-            <polygon
-              :points="`${chartPadding.left},${chartPadding.top + plotHeight} ${outputPoints} ${lineX(dailyData.length - 1)},${chartPadding.top + plotHeight}`"
+            <!-- Area fill for output (smooth) -->
+            <path
+              :d="outputAreaPath"
               fill="url(#outputGradient)"
               opacity="0.15"
             />
-            <!-- Gradient defs -->
-            <defs>
-              <linearGradient id="inputGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#06b6d4" />
-                <stop offset="100%" stop-color="#06b6d4" stop-opacity="0" />
-              </linearGradient>
-              <linearGradient id="outputGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#10b981" />
-                <stop offset="100%" stop-color="#10b981" stop-opacity="0" />
-              </linearGradient>
-            </defs>
-            <!-- Input line -->
-            <polyline
-              :points="inputPoints"
+            <!-- Input line (smooth bezier) -->
+            <path
+              :d="inputLinePath"
               fill="none"
               stroke="#06b6d4"
               stroke-width="2.5"
               stroke-linecap="round"
               stroke-linejoin="round"
             />
-            <!-- Output line -->
-            <polyline
-              :points="outputPoints"
+            <!-- Output line (smooth bezier) -->
+            <path
+              :d="outputLinePath"
               fill="none"
               stroke="#10b981"
               stroke-width="2.5"
@@ -284,8 +362,8 @@ function clearHoveredPoint() {
               <!-- Tooltip for input -->
               <g v-if="hoveredPoint?.dayIndex === i && hoveredPoint?.type === 'input'" class="pointer-events-none">
                 <rect
-                  :x="lineX(i) - 48"
-                  :y="lineY(day.input) - 32"
+                  :x="getTooltipX(i) - 48"
+                  :y="getTooltipY(day.input)"
                   width="96"
                   height="24"
                   rx="4"
@@ -294,8 +372,8 @@ function clearHoveredPoint() {
                   stroke-width="1"
                 />
                 <text
-                  :x="lineX(i)"
-                  :y="lineY(day.input) - 16"
+                  :x="getTooltipX(i)"
+                  :y="getTooltipY(day.input) + 16"
                   text-anchor="middle"
                   fill="#06b6d4"
                   font-size="11"
@@ -319,8 +397,8 @@ function clearHoveredPoint() {
               <!-- Tooltip for output -->
               <g v-if="hoveredPoint?.dayIndex === i && hoveredPoint?.type === 'output'" class="pointer-events-none">
                 <rect
-                  :x="lineX(i) - 48"
-                  :y="lineY(day.output) - 32"
+                  :x="getTooltipX(i) - 48"
+                  :y="getTooltipY(day.output)"
                   width="96"
                   height="24"
                   rx="4"
@@ -329,8 +407,8 @@ function clearHoveredPoint() {
                   stroke-width="1"
                 />
                 <text
-                  :x="lineX(i)"
-                  :y="lineY(day.output) - 16"
+                  :x="getTooltipX(i)"
+                  :y="getTooltipY(day.output) + 16"
                   text-anchor="middle"
                   fill="#10b981"
                   font-size="11"
@@ -342,10 +420,10 @@ function clearHoveredPoint() {
       </div>
 
       <!-- Donut Chart + Summary Row -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         <!-- Donut Chart -->
-        <div class="glass-card p-6 flex flex-col items-center justify-center">
-          <h3 class="text-lg font-semibold text-white mb-6 self-start">Token 分布</h3>
+        <div class="glass-card p-4 md:p-6 flex flex-col items-center justify-center">
+          <h3 class="text-base md:text-lg font-semibold text-white mb-4 md:mb-6 self-start">Token 分布</h3>
           <div v-if="donutData.total === 0" class="flex items-center justify-center py-12">
             <p class="text-sm text-slate-500">暂无数据</p>
           </div>
@@ -367,7 +445,7 @@ function clearHoveredPoint() {
                   fill="none"
                   stroke="#06b6d4"
                   :stroke-width="donutStroke"
-                  :stroke-dasharray="`${donutData.inputLength} ${donutCircumference - donutData.inputLength}`"
+                  :stroke-dasharray="donutData.inputDasharray"
                   :stroke-dashoffset="donutData.inputOffset"
                   stroke-linecap="round"
                   transform="rotate(-90 90 90)"
@@ -380,7 +458,7 @@ function clearHoveredPoint() {
                   fill="none"
                   stroke="#10b981"
                   :stroke-width="donutStroke"
-                  :stroke-dasharray="`${donutData.outputLength} ${donutCircumference - donutData.outputLength}`"
+                  :stroke-dasharray="donutData.outputDasharray"
                   :stroke-dashoffset="donutData.outputOffset"
                   stroke-linecap="round"
                   transform="rotate(-90 90 90)"
@@ -394,7 +472,7 @@ function clearHoveredPoint() {
               </div>
             </div>
             <!-- Legend -->
-            <div class="flex items-center gap-6 mt-6">
+            <div class="flex items-center gap-6 mt-4 md:mt-6">
               <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-full bg-cyan-500"></span>
                 <span class="text-sm text-slate-300">输入</span>
@@ -410,71 +488,93 @@ function clearHoveredPoint() {
         </div>
 
         <!-- Quick Summary Cards -->
-        <div class="lg:col-span-2 glass-card p-6">
-          <h3 class="text-lg font-semibold text-white mb-6">消耗概览</h3>
-          <div class="grid grid-cols-2 gap-4">
-            <div class="rounded-xl bg-cyan-500/5 border border-cyan-500/10 p-4">
-              <p class="text-sm text-slate-400">输入 Token</p>
-              <p class="text-2xl font-bold text-cyan-400 mt-2">{{ stats.totalInput.toLocaleString() }}</p>
-              <div class="mt-3 h-1.5 rounded-full bg-slate-700/50 overflow-hidden">
+        <div class="lg:col-span-2 glass-card p-4 md:p-6">
+          <h3 class="text-base md:text-lg font-semibold text-white mb-4 md:mb-6">消耗概览</h3>
+          <div class="grid grid-cols-2 gap-3 md:gap-4">
+            <div class="rounded-xl bg-cyan-500/5 border border-cyan-500/10 p-3 md:p-4">
+              <p class="text-xs md:text-sm text-slate-400">输入 Token</p>
+              <p class="text-lg md:text-2xl font-bold text-cyan-400 mt-1 md:mt-2">{{ stats.totalInput.toLocaleString() }}</p>
+              <div class="mt-2 md:mt-3 h-1.5 rounded-full bg-slate-700/50 overflow-hidden">
                 <div
                   class="h-full rounded-full bg-gradient-to-r from-cyan-500 to-cyan-400 transition-all duration-700"
                   :style="{ width: donutData.total ? (stats.totalInput / donutData.total * 100) + '%' : '0%' }"
                 ></div>
               </div>
             </div>
-            <div class="rounded-xl bg-emerald-500/5 border border-emerald-500/10 p-4">
-              <p class="text-sm text-slate-400">输出 Token</p>
-              <p class="text-2xl font-bold text-emerald-400 mt-2">{{ stats.totalOutput.toLocaleString() }}</p>
-              <div class="mt-3 h-1.5 rounded-full bg-slate-700/50 overflow-hidden">
+            <div class="rounded-xl bg-emerald-500/5 border border-emerald-500/10 p-3 md:p-4">
+              <p class="text-xs md:text-sm text-slate-400">输出 Token</p>
+              <p class="text-lg md:text-2xl font-bold text-emerald-400 mt-1 md:mt-2">{{ stats.totalOutput.toLocaleString() }}</p>
+              <div class="mt-2 md:mt-3 h-1.5 rounded-full bg-slate-700/50 overflow-hidden">
                 <div
                   class="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-700"
                   :style="{ width: donutData.total ? (stats.totalOutput / donutData.total * 100) + '%' : '0%' }"
                 ></div>
               </div>
             </div>
-            <div class="rounded-xl bg-amber-500/5 border border-amber-500/10 p-4">
-              <p class="text-sm text-slate-400">平均每次输入</p>
-              <p class="text-2xl font-bold text-amber-400 mt-2">{{ stats.count ? Math.round(stats.totalInput / stats.count).toLocaleString() : '0' }}</p>
-              <p class="text-xs text-slate-500 mt-1">tokens / 次</p>
+            <div class="rounded-xl bg-amber-500/5 border border-amber-500/10 p-3 md:p-4">
+              <p class="text-xs md:text-sm text-slate-400">平均每次输入</p>
+              <p class="text-lg md:text-2xl font-bold text-amber-400 mt-1 md:mt-2">{{ stats.count ? Math.round(stats.totalInput / stats.count).toLocaleString() : '0' }}</p>
+              <p class="text-xs text-slate-500 mt-0.5 md:mt-1">tokens / 次</p>
             </div>
-            <div class="rounded-xl bg-purple-500/5 border border-purple-500/10 p-4">
-              <p class="text-sm text-slate-400">平均每次输出</p>
-              <p class="text-2xl font-bold text-purple-400 mt-2">{{ stats.count ? Math.round(stats.totalOutput / stats.count).toLocaleString() : '0' }}</p>
-              <p class="text-xs text-slate-500 mt-1">tokens / 次</p>
+            <div class="rounded-xl bg-purple-500/5 border border-purple-500/10 p-3 md:p-4">
+              <p class="text-xs md:text-sm text-slate-400">平均每次输出</p>
+              <p class="text-lg md:text-2xl font-bold text-purple-400 mt-1 md:mt-2">{{ stats.count ? Math.round(stats.totalOutput / stats.count).toLocaleString() : '0' }}</p>
+              <p class="text-xs text-slate-500 mt-0.5 md:mt-1">tokens / 次</p>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Usage Detail Table -->
-      <div class="glass-card p-6">
-        <h3 class="text-lg font-semibold text-white mb-6">用量明细</h3>
+      <div class="glass-card p-4 md:p-6">
+        <h3 class="text-base md:text-lg font-semibold text-white mb-4 md:mb-6">用量明细</h3>
         <div v-if="loading" class="flex items-center justify-center py-8">
           <div class="w-8 h-8 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin"></div>
         </div>
         <div v-else-if="usageRecords.length === 0" class="text-slate-500 text-center py-8">暂无数据</div>
-        <div v-else class="overflow-x-auto">
-          <table class="w-full">
-            <thead>
-              <tr class="border-b border-white/5">
-                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">时间</th>
-                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">输入Token</th>
-                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">输出Token</th>
-                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">费用</th>
-                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">详情</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-white/5">
-              <tr v-for="record in usageRecords" :key="record.id" class="hover:bg-white/5 transition-colors">
-                <td class="py-4 text-sm text-slate-500">{{ record.createdAt ? new Date(record.createdAt).toLocaleString() : '-' }}</td>
-                <td class="py-4 text-sm text-cyan-400 font-medium">{{ record.inputTokens?.toLocaleString() || '0' }}</td>
-                <td class="py-4 text-sm text-amber-400 font-medium">{{ record.outputTokens?.toLocaleString() || '0' }}</td>
-                <td class="py-4 text-sm font-medium text-emerald-400">¥{{ Math.abs(Number(record.amount || 0)).toFixed(4) }}</td>
-                <td class="py-4 text-sm text-slate-400 max-w-xs truncate" :title="record.detail">{{ record.detail || '-' }}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div v-else>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead>
+                <tr class="border-b border-white/5">
+                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">时间</th>
+                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">输入Token</th>
+                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">输出Token</th>
+                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">费用</th>
+                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">详情</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-white/5">
+                <tr v-for="record in pagedRecords" :key="record.id" class="hover:bg-white/5 transition-colors">
+                  <td class="py-4 text-sm text-slate-500">{{ record.createdAt ? new Date(record.createdAt).toLocaleString() : '-' }}</td>
+                  <td class="py-4 text-sm text-cyan-400 font-medium">{{ record.inputTokens?.toLocaleString() || '0' }}</td>
+                  <td class="py-4 text-sm text-amber-400 font-medium">{{ record.outputTokens?.toLocaleString() || '0' }}</td>
+                  <td class="py-4 text-sm font-medium text-emerald-400">¥{{ Math.abs(Number(record.amount || 0)).toFixed(4) }}</td>
+                  <td class="py-4 text-sm text-slate-400 max-w-xs truncate" :title="record.detail">{{ record.detail || '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- Pagination -->
+          <div v-if="usageRecords.length > pageSize" class="flex items-center justify-between pt-2">
+            <span class="text-sm text-slate-400">共 {{ usageRecords.length }} 条记录</span>
+            <div class="flex items-center gap-1">
+              <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1"
+                class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                <ChevronLeft class="w-4 h-4" />
+              </button>
+              <template v-for="p in totalPages" :key="p">
+                <button @click="goToPage(p)"
+                  :class="['w-8 h-8 rounded-lg text-sm transition-colors', p === currentPage ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-300 hover:bg-white/10']">
+                  {{ p }}
+                </button>
+              </template>
+              <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages"
+                class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                <ChevronRight class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </template>

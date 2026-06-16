@@ -1,23 +1,31 @@
-<!-- 管理后台 - 模型管理页面：接入第三方大模型，配置 API 与计费参数，支持在线测试对话 -->
+<!-- 管理后台 - 模型管理页面：接入第三方大模型，配置 API 与计费参数 -->
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useApiStore, API_BASE } from '@/stores/api'
-import { useAuthStore } from '@/stores/auth'
+import { ref, computed, onMounted } from 'vue'
+import { useApiStore } from '@/stores/api'
 import {
-  Plus, Power, Settings2, Trash2, Cpu, Gauge, MessageSquare
+  Plus, Power, Settings2, Trash2, Cpu, Gauge, ChevronLeft, ChevronRight
 } from 'lucide-vue-next'
 
 const api = useApiStore()
-const authStore = useAuthStore()
 
 // 页面状态
 const loading = ref(false)          // 列表加载中
 const showAddModal = ref(false)     // 新增/编辑弹窗
-const showTestModal = ref(false)    // 测试对话弹窗
 const editingModel = ref(null)      // 当前编辑的模型（null 表示新增）
-const testingModel = ref(null)      // 当前测试的模型
 
 const models = ref([])
+
+// 分页
+const currentPage = ref(1)
+const pageSize = ref(8)
+const totalPages = computed(() => Math.max(1, Math.ceil(models.value.length / pageSize.value)))
+const pagedModels = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return models.value.slice(start, start + pageSize.value)
+})
+function goToPage(page) {
+  if (page >= 1 && page <= totalPages.value) currentPage.value = page
+}
 
 // 新增/编辑表单数据
 const newModel = ref({
@@ -29,14 +37,6 @@ const newModel = ref({
   apiKey: '',
   maxTokens: 4096,
   thinking: false
-})
-
-// 测试对话表单数据
-const testForm = ref({
-  message: '',       // 测试输入内容
-  streaming: true,   // 是否流式响应
-  response: '',      // 模型回复内容
-  loading: false     // 请求进行中
 })
 
 onMounted(loadData)
@@ -79,26 +79,26 @@ async function deleteModel(model) {
 }
 
 /**
-     * 保存模型（新增或编辑）
-     * 根据 editingModel 是否存在判断是新增还是编辑
-     */
-    async function saveModel() {
-      if (!newModel.value.name.trim()) {
-        alert('请输入模型名称')
-        return
-      }
-      if (!newModel.value.provider.trim()) {
-        alert('请输入提供商')
-        return
-      }
-      if (!newModel.value.modelId.trim()) {
-        alert('请输入模型ID')
-        return
-      }
-      
-      const body = editingModel.value
-        ? { ...editingModel.value, ...newModel.value }
-        : { ...newModel.value }
+ * 保存模型（新增或编辑）
+ * 根据 editingModel 是否存在判断是新增还是编辑
+ */
+async function saveModel() {
+  if (!newModel.value.name.trim()) {
+    alert('请输入模型名称')
+    return
+  }
+  if (!newModel.value.provider.trim()) {
+    alert('请输入提供商')
+    return
+  }
+  if (!newModel.value.modelId.trim()) {
+    alert('请输入模型ID')
+    return
+  }
+
+  const body = editingModel.value
+    ? { ...editingModel.value, ...newModel.value }
+    : { ...newModel.value }
 
   if (editingModel.value) {
     const res = await api.put(`/models/${editingModel.value.id}`, body)
@@ -148,88 +148,6 @@ function resetForm() {
     maxTokens: 4096, thinking: false
   }
 }
-
-/**
- * 打开测试对话弹窗
- * 初始化测试表单状态
- */
-function openTest(model) {
-  testingModel.value = model
-  testForm.value = { message: '', streaming: true, response: '', loading: false }
-  showTestModal.value = true
-}
-
-/**
- * 执行测试对话
- * 直接调用 /chat/completions 接口，支持 SSE 流式读取响应
- * 使用 ReadableStream 逐行解析 SSE 事件，实时拼接模型回复
- */
-async function runTest() {
-  if (!testForm.value.message.trim()) return
-  testForm.value.response = ''
-  testForm.value.loading = true
-
-  try {
-    // 直接使用 fetch 发起 SSE 流式请求（不走 api store，需手动处理流）
-    const res = await fetch(`${API_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authStore.token}`
-      },
-      body: JSON.stringify({
-        modelId: testingModel.value.id,
-        message: testForm.value.message,
-        stream: testForm.value.streaming
-      })
-    })
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      testForm.value.response = `请求失败: ${err.message || res.statusText}`
-      testForm.value.loading = false
-      return
-    }
-
-    // 使用 ReadableStream 逐块读取 SSE 数据
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      // 按换行符分割，逐行解析 SSE 事件
-      const lines = buffer.split('\n')
-      buffer = lines.pop()  // 保留未完成的行
-      for (const line of lines) {
-        if (line.startsWith('data:')) {
-          const data = line.slice(5).trim()
-          if (data === '[DONE]') continue
-          // 后端发送纯文本 SSE（data:内容），非 OpenAI JSON 格式
-          // 尝试 JSON 解析（兼容 OpenAI 格式），失败则直接作为文本
-          try {
-            const json = JSON.parse(data)
-            const delta = json.choices?.[0]?.delta?.content
-            if (delta) {
-              testForm.value.response += delta
-            }
-          } catch {
-            // 纯文本格式，直接拼接
-            if (data) {
-              testForm.value.response += data
-            }
-          }
-        }
-      }
-    }
-  } catch (e) {
-    testForm.value.response = '请求异常: ' + e.message
-  } finally {
-    testForm.value.loading = false
-  }
-}
 </script>
 
 <template>
@@ -249,7 +167,7 @@ async function runTest() {
 
     <!-- 模型卡片网格 -->
     <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div v-for="model in models" :key="model.id" class="glass-card p-6 glow-border">
+      <div v-for="model in pagedModels" :key="model.id" class="glass-card p-6 glow-border">
         <!-- 卡片头部：模型名称 + 操作按钮 -->
         <div class="flex items-start justify-between mb-4">
           <div class="flex items-center gap-3">
@@ -261,16 +179,13 @@ async function runTest() {
               <p class="text-sm text-slate-400">{{ model.provider }}</p>
             </div>
           </div>
-          <!-- 操作按钮：启停、测试、编辑、删除 -->
+          <!-- 操作按钮：启停、编辑、删除 -->
           <div class="flex items-center gap-2">
             <button
               @click="toggleStatus(model)"
               :class="['p-2 rounded-lg transition-colors', model.status === 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400']"
             >
               <Power class="w-4 h-4" />
-            </button>
-            <button @click="openTest(model)" class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10" title="测试对话">
-              <MessageSquare class="w-4 h-4" />
             </button>
             <button @click="editModel(model)" class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10">
               <Settings2 class="w-4 h-4" />
@@ -311,6 +226,27 @@ async function runTest() {
             {{ model.status === 0 ? '运行中' : '已停用' }}
           </span>
         </div>
+      </div>
+    </div>
+
+    <!-- 分页控件 -->
+    <div v-if="models.length > pageSize" class="flex items-center justify-between pt-2">
+      <span class="text-sm text-slate-400">共 {{ models.length }} 个模型</span>
+      <div class="flex items-center gap-1">
+        <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1"
+          class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronLeft class="w-4 h-4" />
+        </button>
+        <template v-for="p in totalPages" :key="p">
+          <button @click="goToPage(p)"
+            :class="['w-8 h-8 rounded-lg text-sm transition-colors', p === currentPage ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-300 hover:bg-white/10']">
+            {{ p }}
+          </button>
+        </template>
+        <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages"
+          class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronRight class="w-4 h-4" />
+        </button>
       </div>
     </div>
 
@@ -369,35 +305,6 @@ async function runTest() {
         <div class="flex gap-3 mt-6">
           <button @click="showAddModal = false" class="btn-secondary flex-1">取消</button>
           <button @click="saveModel" class="btn-primary flex-1">保存</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 测试对话弹窗 -->
-    <div v-if="showTestModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div class="glass-card w-full max-w-2xl p-6 animate-slide-up flex flex-col max-h-[80vh]">
-        <h2 class="text-xl font-bold text-white mb-4">测试对话 — {{ testingModel?.name }}</h2>
-        <div class="flex-1 overflow-y-auto space-y-4 mb-4">
-          <!-- 输入区域 -->
-          <div class="bg-slate-800/50 rounded-lg p-4 border border-white/5">
-            <label class="block text-sm text-slate-300 mb-2">输入内容</label>
-            <textarea v-model="testForm.message" rows="3" class="input-field w-full resize-none" placeholder="输入测试问题..."></textarea>
-            <div class="flex items-center gap-2 mt-2">
-              <input id="stream" v-model="testForm.streaming" type="checkbox" class="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-500" />
-              <label for="stream" class="text-sm text-slate-300">流式响应</label>
-            </div>
-            <button @click="runTest" :disabled="testForm.loading || !testForm.message.trim()" class="btn-primary mt-3 w-full">
-              {{ testForm.loading ? '请求中...' : '发送' }}
-            </button>
-          </div>
-          <!-- 回复区域 -->
-          <div v-if="testForm.response || testForm.loading" class="bg-slate-800/50 rounded-lg p-4 border border-white/5">
-            <label class="block text-sm text-slate-300 mb-2">模型回复</label>
-            <div class="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">{{ testForm.response }}</div>
-          </div>
-        </div>
-        <div class="flex justify-end">
-          <button @click="showTestModal = false" class="btn-secondary">关闭</button>
         </div>
       </div>
     </div>

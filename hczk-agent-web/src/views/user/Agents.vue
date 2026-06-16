@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useApiStore } from '@/stores/api'
-import { Bot, RefreshCw, Wifi, WifiOff } from 'lucide-vue-next'
+import { Bot, RefreshCw, Wifi, WifiOff, Clock, Activity, SearchX } from 'lucide-vue-next'
 
 const api = useApiStore()
 const agents = ref([])
@@ -9,12 +9,22 @@ const agentHealthMap = ref({})
 const loading = ref(false)
 let refreshInterval = null
 
+// Countdown for auto-refresh
+const REFRESH_INTERVAL_SEC = 30
+const countdown = ref(REFRESH_INTERVAL_SEC)
+let countdownTimer = null
+
 onMounted(() => {
   loadData()
-  refreshInterval = setInterval(loadHealthStatus, 30000)
+  refreshInterval = setInterval(loadHealthStatus, REFRESH_INTERVAL_SEC * 1000)
+  countdownTimer = setInterval(() => {
+    countdown.value--
+    if (countdown.value <= 0) countdown.value = REFRESH_INTERVAL_SEC
+  }, 1000)
 })
 onUnmounted(() => {
   if (refreshInterval) clearInterval(refreshInterval)
+  if (countdownTimer) clearInterval(countdownTimer)
 })
 
 async function loadData() {
@@ -23,6 +33,7 @@ async function loadData() {
   if (res.code === 200) agents.value = res.data || []
   loading.value = false
   await loadHealthStatus()
+  countdown.value = REFRESH_INTERVAL_SEC
 }
 
 async function loadHealthStatus() {
@@ -49,6 +60,11 @@ function getHealthText(agentId) {
   if (health.online) return health.runtimeStatus === 'degraded' ? '降级' : '在线'
   return '离线'
 }
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-'
+  return new Date(dateStr).toLocaleString()
+}
 </script>
 
 <template>
@@ -58,14 +74,28 @@ function getHealthText(agentId) {
         <h1 class="text-2xl font-bold text-white">平台智能体</h1>
         <p class="text-slate-400 mt-1">查看平台注册的智能体运行状态</p>
       </div>
-      <button @click="loadData" class="px-3 py-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 flex items-center gap-2 text-sm">
-        <RefreshCw class="w-3.5 h-3.5" /> 刷新
-      </button>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-slate-500 flex items-center gap-1">
+          <Clock class="w-3 h-3" />{{ countdown }}s 后刷新
+        </span>
+        <button @click="loadData" class="px-3 py-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 flex items-center gap-2 text-sm">
+          <RefreshCw class="w-3.5 h-3.5" /> 刷新
+        </button>
+      </div>
     </div>
 
-    <div v-if="loading" class="text-slate-500">加载中...</div>
-    <div v-else-if="agents.length === 0" class="text-slate-500">暂无智能体</div>
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div v-if="loading" class="flex items-center justify-center py-16">
+      <div class="flex flex-col items-center gap-3">
+        <div class="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+        <p class="text-slate-500 text-sm">加载中...</p>
+      </div>
+    </div>
+    <div v-else-if="agents.length === 0" class="glass-card p-12 flex flex-col items-center justify-center">
+      <SearchX class="w-12 h-12 text-slate-600 mb-3" />
+      <p class="text-slate-400 font-medium">暂无智能体</p>
+      <p class="text-sm text-slate-500 mt-1">平台尚未注册任何智能体</p>
+    </div>
+    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       <div v-for="agent in agents" :key="agent.id" class="glass-card p-5 glow-border">
         <div class="flex items-start gap-3">
           <div class="relative">
@@ -86,6 +116,16 @@ function getHealthText(agentId) {
               <span v-if="agent.agentType" class="bg-white/5 px-1.5 py-0.5 rounded">{{ agent.agentType }}</span>
               <span v-if="agent.version">v{{ agent.version }}</span>
               <span>{{ agent.totalCalls || 0 }} 次调用</span>
+            </div>
+            <div class="mt-3 pt-3 border-t border-white/5 space-y-1.5">
+              <div v-if="agent.createdAt" class="flex items-center gap-1.5 text-xs text-slate-500">
+                <Clock class="w-3 h-3" />
+                <span>创建: {{ formatDate(agent.createdAt) }}</span>
+              </div>
+              <div v-if="agent.lastActiveAt" class="flex items-center gap-1.5 text-xs text-slate-500">
+                <Activity class="w-3 h-3" />
+                <span>活跃: {{ formatDate(agent.lastActiveAt) }}</span>
+              </div>
             </div>
           </div>
         </div>

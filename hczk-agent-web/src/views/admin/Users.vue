@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useApiStore } from '@/stores/api'
-import { Users, Search, Filter, Wallet, BarChart3, KeyRound, X } from 'lucide-vue-next'
+import { Users, Search, Filter, Wallet, BarChart3, KeyRound, X, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 const api = useApiStore()
 const loading = ref(false)
@@ -40,6 +40,18 @@ const filteredUsers = computed(() => {
     (u.email || '').toLowerCase().includes(q)
   )
 })
+
+// 分页
+const currentPage = ref(1)
+const pageSize = ref(10)
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredUsers.value.length / pageSize.value)))
+const pagedUsers = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredUsers.value.slice(start, start + pageSize.value)
+})
+function goToPage(page) {
+  if (page >= 1 && page <= totalPages.value) currentPage.value = page
+}
 
 /** 打开用户详情弹窗 */
 async function openDetail(user) {
@@ -146,7 +158,7 @@ async function doRecharge() {
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5">
-            <tr v-for="user in filteredUsers" :key="user.id" class="hover:bg-white/5 transition-colors">
+            <tr v-for="user in pagedUsers" :key="user.id" class="hover:bg-white/5 transition-colors">
               <td class="py-4">
                 <div class="flex items-center gap-3">
                   <div class="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white text-sm font-bold">
@@ -188,6 +200,27 @@ async function doRecharge() {
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- 分页控件 -->
+    <div v-if="filteredUsers.length > pageSize" class="flex items-center justify-between pt-2">
+      <span class="text-sm text-slate-400">共 {{ filteredUsers.length }} 个用户</span>
+      <div class="flex items-center gap-1">
+        <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1"
+          class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronLeft class="w-4 h-4" />
+        </button>
+        <template v-for="p in totalPages" :key="p">
+          <button @click="goToPage(p)"
+            :class="['w-8 h-8 rounded-lg text-sm transition-colors', p === currentPage ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-300 hover:bg-white/10']">
+            {{ p }}
+          </button>
+        </template>
+        <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages"
+          class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronRight class="w-4 h-4" />
+        </button>
       </div>
     </div>
 

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useApiStore } from '@/stores/api'
-import { Receipt, TrendingUp, ArrowDownUp, Wallet, Zap } from 'lucide-vue-next'
+import { Receipt, TrendingUp, ArrowDownUp, Wallet, Zap, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 const api = useApiStore()
 const loading = ref(false)
@@ -31,6 +31,18 @@ const filteredRecords = computed(() => {
   if (typeFilter.value === 'all') return billingRecords.value
   return billingRecords.value.filter(r => r.type === typeFilter.value)
 })
+
+// 分页
+const currentPage = ref(1)
+const pageSize = ref(15)
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredRecords.value.length / pageSize.value)))
+const pagedRecords = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredRecords.value.slice(start, start + pageSize.value)
+})
+function goToPage(page) {
+  if (page >= 1 && page <= totalPages.value) currentPage.value = page
+}
 
 const stats = computed(() => {
   const now = new Date()
@@ -156,7 +168,7 @@ function formatTime(createdAt) {
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5">
-            <tr v-for="record in filteredRecords" :key="record.id" class="hover:bg-white/5 transition-colors">
+            <tr v-for="record in pagedRecords" :key="record.id" class="hover:bg-white/5 transition-colors">
               <td class="py-4 text-sm text-white">{{ getUserName(record.userId) }}</td>
               <td class="py-4">
                 <span :class="['px-2 py-1 text-xs rounded-full', record.type === 'RECHARGE' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-orange-500/10 text-orange-400']">
@@ -177,6 +189,27 @@ function formatTime(createdAt) {
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- 分页控件 -->
+    <div v-if="filteredRecords.length > pageSize" class="flex items-center justify-between pt-2">
+      <span class="text-sm text-slate-400">共 {{ filteredRecords.length }} 条记录</span>
+      <div class="flex items-center gap-1">
+        <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1"
+          class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronLeft class="w-4 h-4" />
+        </button>
+        <template v-for="p in totalPages" :key="p">
+          <button @click="goToPage(p)"
+            :class="['w-8 h-8 rounded-lg text-sm transition-colors', p === currentPage ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-300 hover:bg-white/10']">
+            {{ p }}
+          </button>
+        </template>
+        <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages"
+          class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronRight class="w-4 h-4" />
+        </button>
       </div>
     </div>
   </div>

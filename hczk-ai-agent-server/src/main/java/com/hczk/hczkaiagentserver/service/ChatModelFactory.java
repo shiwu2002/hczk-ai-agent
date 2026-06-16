@@ -33,16 +33,32 @@ public class ChatModelFactory {
      * @param enableThinking 是否启用思考模式，null 表示使用模型默认配置
      */
     public void setRequestThinking(Boolean enableThinking) {
-        OpenAiCompatibleChatModel.setRequestThinking(enableThinking);
-        AnthropicChatModel.setRequestThinking(enableThinking);
+        try {
+            OpenAiCompatibleChatModel.setRequestThinking(enableThinking);
+        } catch (NoSuchMethodError e) {
+            log.debug("OpenAiCompatibleChatModel.setRequestThinking 不支持，跳过");
+        }
+        try {
+            AnthropicChatModel.setRequestThinking(enableThinking);
+        } catch (NoSuchMethodError e) {
+            log.debug("AnthropicChatModel.setRequestThinking 不支持，跳过");
+        }
     }
 
     /**
      * 清除当前请求的 thinking 参数
      */
     public void clearRequestThinking() {
-        OpenAiCompatibleChatModel.clearRequestThinking();
-        AnthropicChatModel.clearRequestThinking();
+        try {
+            OpenAiCompatibleChatModel.clearRequestThinking();
+        } catch (NoSuchMethodError e) {
+            log.debug("OpenAiCompatibleChatModel.clearRequestThinking 不支持，跳过");
+        }
+        try {
+            AnthropicChatModel.clearRequestThinking();
+        } catch (NoSuchMethodError e) {
+            log.debug("AnthropicChatModel.clearRequestThinking 不支持，跳过");
+        }
     }
 
     private ChatModel createChatModel(AiModel model) {
