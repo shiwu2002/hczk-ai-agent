@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
-  LayoutDashboard, Bot, Server, Cpu, Link, KeyRound, Users,
+  LayoutDashboard, Bot, Server, Cpu, KeyRound, Users,
   Receipt, MessageSquare, Plug, Settings, LogOut, ChevronRight, Shield, Database, FlaskConical
 } from 'lucide-vue-next'
 

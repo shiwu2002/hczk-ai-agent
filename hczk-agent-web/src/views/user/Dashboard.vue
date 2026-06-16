@@ -143,14 +143,6 @@ function lineY(value) {
   return chartPadding.top + plotHeight - (value / lineChartMax.value) * plotHeight
 }
 
-const inputPoints = computed(() =>
-  dailyData.value.map((d, i) => `${lineX(i)},${lineY(d.input)}`).join(' ')
-)
-
-const outputPoints = computed(() =>
-  dailyData.value.map((d, i) => `${lineX(i)},${lineY(d.output)}`).join(' ')
-)
-
 // 贝塞尔曲线平滑路径生成
 function generateSmoothPath(data, valueKey) {
   const points = data.map((d, i) => ({ x: lineX(i), y: lineY(d[valueKey]) }))

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useApiStore } from '@/stores/api'
-import { Bot, RefreshCw, Wifi, WifiOff, Clock, Activity, SearchX } from 'lucide-vue-next'
+import { Bot, RefreshCw, Clock, Activity, SearchX } from 'lucide-vue-next'
 
 const api = useApiStore()
 const agents = ref([])

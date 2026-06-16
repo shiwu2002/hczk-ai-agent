@@ -2,11 +2,9 @@
 <script setup>
 import { ref, onMounted, nextTick, computed } from 'vue'
 import { useApiStore, API_BASE } from '@/stores/api'
-import { useAuthStore } from '@/stores/auth'
 import { Send, Trash2, Cpu, Loader2, Copy, Check, KeyRound, Eye, EyeOff } from 'lucide-vue-next'
 
 const api = useApiStore()
-const authStore = useAuthStore()
 
 // ====== 页面状态 ======
 const apiKeyInput = ref('')          // 手动填入的API Key

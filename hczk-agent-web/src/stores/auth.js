@@ -108,27 +108,5 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('token')
   }
 
-  /**
-   * 带认证的请求封装
-   * 自动附加 Authorization 请求头，401 时自动登出并跳转登录页
-   * @param {string} url - 请求路径（不含 API_BASE 前缀）
-   * @param {Object} options - fetch 选项
-   * @returns {Promise<Object>} 响应 JSON 数据
-   */
-  async function fetchWithAuth(url, options = {}) {
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token.value}`,
-      ...options.headers
-    }
-    const res = await fetch(`${API_BASE}${url}`, { ...options, headers })
-    // Token 过期或无效时，清除登录状态并跳转
-    if (res.status === 401) {
-      handleUnauthorized()
-      throw new Error('登录已过期，请重新登录')
-    }
-    return res.json()
-  }
-
-  return { user, token, isAuthenticated, isAdmin, currentUser, login, logout, fetchWithAuth, handleUnauthorized }
+  return { user, token, isAuthenticated, isAdmin, currentUser, login, logout, handleUnauthorized }
 })

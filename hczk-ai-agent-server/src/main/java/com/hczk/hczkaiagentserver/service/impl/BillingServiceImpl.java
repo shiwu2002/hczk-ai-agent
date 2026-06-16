@@ -184,67 +184,6 @@ public class BillingServiceImpl implements BillingService {
     }
 
     /**
-     * 异步扣减余额
-     *
-     * 由RabbitMQ消费者调用，实现异步计费，不阻塞主业务流程。
-     *
-     * @param userId       用户ID
-     * @param apiKeyId     API Key ID
-     * @param modelId      调用的模型ID
-     * @param amount       扣减金额
-     * @param inputTokens  输入Token数
-     * @param outputTokens 输出Token数
-     * @param detail       扣费详情描述
-     */
-    @Override
-    @Transactional
-    public void deductBalanceAsync(Long userId, Long apiKeyId, Long modelId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail) {
-        User user = userMapper.selectById(userId);
-        if (user == null) {
-            log.error("异步扣费失败：用户不存在: userId={}", userId);
-            return;
-        }
-
-        if (user.getBalance().compareTo(amount) < 0) {
-            log.warn("异步扣费失败：余额不足: userId={}, balance={}, required={}", userId, user.getBalance(), amount);
-            return;
-        }
-
-        user.setBalance(user.getBalance().subtract(amount));
-        user.setTotalUsageTokens(user.getTotalUsageTokens() + inputTokens + outputTokens);
-        userMapper.updateById(user);
-
-        redisCacheService.cacheUserBalance(userId, user.getBalance());
-
-        BillingRecord record = new BillingRecord();
-        record.setUserId(userId);
-        record.setApiKeyId(apiKeyId);
-        record.setModelId(modelId);
-        record.setType(BillingType.TOKEN_USAGE);
-        record.setAmount(amount.negate());
-        record.setBalanceAfter(user.getBalance());
-        record.setInputTokens(inputTokens);
-        record.setOutputTokens(outputTokens);
-        record.setDetail(detail);
-        billingRecordMapper.insert(record);
-
-        if (apiKeyId != null) {
-            try {
-                ApiKey apiKey = apiKeyMapper.selectById(apiKeyId);
-                if (apiKey != null) {
-                    apiKey.setTotalInputTokens(apiKey.getTotalInputTokens() + inputTokens);
-                    apiKey.setTotalOutputTokens(apiKey.getTotalOutputTokens() + outputTokens);
-                    apiKey.setTotalCost(apiKey.getTotalCost().add(amount));
-                    apiKey.setTotalCalls(apiKey.getTotalCalls() + 1);
-                    apiKeyMapper.updateById(apiKey);
-                }
-            } catch (Exception e) {
-                log.warn("更新 API Key 统计失败: apiKeyId={}, error={}", apiKeyId, e.getMessage());
-            }
-        }
-    }
-
-    /**
      * 获取用户余额（从数据库）
      * 
      * @param userId 用户ID

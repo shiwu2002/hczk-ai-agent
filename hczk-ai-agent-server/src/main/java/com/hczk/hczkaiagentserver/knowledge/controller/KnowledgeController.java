@@ -47,7 +47,7 @@ public class KnowledgeController {
     @GetMapping("/bases")
     public Result<List<KnowledgeBase>> listKnowledgeBases(
             @RequestParam(required = false) String ownerType,
-            @RequestParam(required = false) Long ownerId) {
+            @RequestParam(required = false) String ownerId) {
         if (ownerType != null && ownerId != null) {
             return Result.success(knowledgeBaseService.getByOwnerId(ownerType, ownerId));
         }
@@ -267,7 +267,7 @@ public class KnowledgeController {
             // 查询归属信息
             KnowledgeBase kb = knowledgeBaseService.findByAgentIdAndCollection(extractedAgentId, collName);
             String ownerType = kb != null ? kb.getOwnerType() : null;
-            Long ownerId = kb != null ? kb.getOwnerId() : null;
+            String ownerId = kb != null ? kb.getOwnerId() : null;
             String ownerName = resolveOwnerName(ownerType, ownerId);
 
             result.add(new CollectionInfo(name, rowCount, extractedAgentId, collName, ownerType, ownerId, ownerName));
@@ -378,8 +378,11 @@ public class KnowledgeController {
 
     // ==================== 私有方法 ====================
 
+    /**
+     * 从物理集合名提取 agentId
+     * 格式: kb_{agentId}_{collectionName}，agentId 为纯数字雪花ID
+     */
     private String extractAgentId(String collectionName) {
-        // kb_{agentId}_{collectionName}
         if (collectionName.startsWith("kb_")) {
             String rest = collectionName.substring(3);
             int underscoreIndex = rest.indexOf('_');
@@ -390,6 +393,9 @@ public class KnowledgeController {
         return "";
     }
 
+    /**
+     * 从物理集合名提取逻辑集合名
+     */
     private String extractCollectionName(String collectionName) {
         if (collectionName.startsWith("kb_")) {
             String rest = collectionName.substring(3);
@@ -402,19 +408,16 @@ public class KnowledgeController {
     }
 
     /**
-     * 根据 ownerType 和 ownerId 生成 Milvus 用的 agentId
+     * 根据 ownerId 生成 Milvus 用的 agentId
+     * ownerId 即为雪花ID字符串，直接使用
      */
-    private String buildAgentId(String ownerType, Long ownerId) {
-        if ("AGENT".equals(ownerType)) {
-            return "agent_" + ownerId;
-        } else if ("USER".equals(ownerType)) {
-            return "user_" + ownerId;
-        }
-        return String.valueOf(ownerId);
+    private String buildAgentId(String ownerType, String ownerId) {
+        return ownerId;
     }
 
     /**
      * 摄入时自动确保归属关系存在
+     * agentId 为雪花ID字符串，通过 user_id 查找用户
      */
     private void ensureKnowledgeBaseBinding(String agentId, String collectionName) {
         try {
@@ -422,23 +425,11 @@ public class KnowledgeController {
             if (existing != null) {
                 return;
             }
-            // 尝试从 agentId 解析归属信息
-            String ownerType;
-            Long ownerId;
-            if (agentId.startsWith("agent_")) {
-                ownerType = "AGENT";
-                ownerId = Long.parseLong(agentId.substring(6));
-            } else if (agentId.startsWith("user_")) {
-                ownerType = "USER";
-                ownerId = Long.parseLong(agentId.substring(5));
-            } else {
-                // 兼容旧格式，无法解析归属信息则跳过
-                return;
-            }
+            // agentId 即为用户的雪花ID
             KnowledgeBase kb = new KnowledgeBase();
             kb.setName(collectionName);
-            kb.setOwnerType(ownerType);
-            kb.setOwnerId(ownerId);
+            kb.setOwnerType("USER");
+            kb.setOwnerId(agentId);
             kb.setAgentId(agentId);
             kb.setCollectionName(collectionName);
             knowledgeBaseService.createKnowledgeBase(kb);
@@ -450,16 +441,14 @@ public class KnowledgeController {
     /**
      * 解析归属对象名称
      */
-    private String resolveOwnerName(String ownerType, Long ownerId) {
+    private String resolveOwnerName(String ownerType, String ownerId) {
         if (ownerType == null || ownerId == null) {
             return null;
         }
         try {
-            if ("AGENT".equals(ownerType)) {
-                Agent agent = agentMapper.selectById(ownerId);
-                return agent != null ? agent.getName() : null;
-            } else if ("USER".equals(ownerType)) {
-                User user = userMapper.selectById(ownerId);
+            if ("USER".equals(ownerType)) {
+                User user = userMapper.selectOne(
+                        new LambdaQueryWrapper<User>().eq(User::getUserId, ownerId));
                 return user != null ? user.getUsername() : null;
             }
         } catch (Exception e) {

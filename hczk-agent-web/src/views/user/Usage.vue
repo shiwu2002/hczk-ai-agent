@@ -62,8 +62,6 @@ const dailyData = computed(() => {
   return days
 })
 
-const maxDaily = computed(() => Math.max(...dailyData.value.map(d => d.total)) || 1)
-
 // Line chart computed values
 const chartPadding = { top: 20, right: 20, bottom: 36, left: 50 }
 const chartWidth = 700

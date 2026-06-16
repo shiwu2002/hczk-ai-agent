@@ -54,5 +54,17 @@ export const useApiStore = defineStore('api', () => {
     return handleResponse(res)
   }
 
-  return { get, post, put, del }
+  async function patch(url, body) {
+    const res = await fetch(`${API_BASE}${url}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authStore.token}`
+      },
+      body: body ? JSON.stringify(body) : undefined
+    })
+    return handleResponse(res)
+  }
+
+  return { get, post, put, del, patch }
 })

@@ -9,8 +9,6 @@ public interface ToolDefinitionService {
     ToolDefinition create(ToolDefinition tool);
     ToolDefinition update(Long id, ToolDefinition tool);
     void delete(Long id);
-    ToolDefinition getById(Long id);
-    ToolDefinition getByName(String name);
     List<ToolDefinition> getBySkillId(String skillId);
     List<ToolDefinition> getActiveBySkillId(String skillId);
     List<ToolDefinition> getAllActive();

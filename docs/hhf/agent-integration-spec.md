@@ -1,7 +1,7 @@
 # 桓宸智科 AI 平台 — 智能体接入规范
 
-> 版本：2.1.0
-> 日期：2026-06-16
+> 版本：4.0.0
+> 日期：2026-06-17
 > 适用范围：所有需要注册到桓宸智科 AI 平台的容器智能体
 
 ---
@@ -47,11 +47,11 @@
 
 ```json
 {
-  "sub": "merchant_M001",
+  "sub": "user_1234567890123456789",
   "iss": "hczk-platform",
   "iat": 1781593200,
   "exp": 1781596800,
-  "merchant_id": "M001",
+  "user_id": "1234567890123456789",
   "scope": "chat",
   "apiKey": "sk-hczk-xxx"
 }
@@ -61,11 +61,11 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `sub` | string | 是 | 主体标识，格式为 `merchant_{merchant_id}` |
+| `sub` | string | 是 | 主体标识，格式为 `user_{user_id}` |
 | `iss` | string | 是 | 签发者，固定为 `hczk-platform` |
 | `iat` | number | 是 | 签发时间（Unix 时间戳，秒级） |
 | `exp` | number | 是 | 过期时间（Unix 时间戳，秒级），默认1小时 |
-| `merchant_id` | string | 是 | 商家 ID，用于多租户隔离 |
+| `user_id` | string | 是 | 用户 ID（雪花ID），用于用户隔离和知识库查找 |
 | `scope` | string | 是 | 权限范围，当前固定为 `chat` |
 | `apiKey` | string | 否 | 平台 API Key（访问知识库和模型时使用），试用场景为空 |
 
@@ -120,11 +120,11 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdW...省略...xxx
 4. 检查 exp（过期时间）未过期
    - 建议允许 30 秒时钟偏差
 
-5. 从 payload 中提取 merchant_id 和 apiKey
-   - merchant_id 用于多租户隔离（必填）
+5. 从 payload 中提取 user_id 和 apiKey
+   - user_id 用于用户隔离和知识库查找（必填）
    - apiKey 用于调用平台服务（可空）
 
-6. 使用 merchant_id 做多租户隔离
+6. 使用 user_id 做用户隔离，并根据 user_id 查找用户的知识库集合
 7. 使用 apiKey 调用平台知识库/模型服务（如需要）
 ```
 
@@ -141,20 +141,20 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdW...省略...xxx
 
 管理后台试用智能体时，平台生成特殊的 JWT Token：
 
-- `merchant_id` 为 `"trial"`
+- `user_id` 为 `"trial"`
 - `apiKey` 为空（不包含该字段）
-- `sub` 为 `"merchant_trial"`
+- `sub` 为 `"user_trial"`
 
 ```json
 {
-  "sub": "merchant_trial",
+  "sub": "user_trial",
   "iss": "hczk-platform",
-  "merchant_id": "trial",
+  "user_id": "trial",
   "scope": "chat"
 }
 ```
 
-智能体端应识别 `merchant_id === "trial"` 为试用请求，可限制功能或返回示例数据。
+智能体端应识别 `user_id === "trial"` 为试用请求，可限制功能或返回示例数据。
 
 ### 3.7 代码示例
 
@@ -163,11 +163,11 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdW...省略...xxx
 ```java
 SecretKey key = Keys.hmacShaKeyFor(sharedSecret.getBytes(StandardCharsets.UTF_8));
 String token = Jwts.builder()
-    .subject("merchant_" + merchantId)
+    .subject("user_" + userId)
     .issuer("hczk-platform")
     .issuedAt(new Date())
     .expiration(new Date(System.currentTimeMillis() + 3600000))
-    .claim("merchant_id", merchantId)
+    .claim("user_id", userId)
     .claim("scope", "chat")
     .claim("apiKey", apiKey)  // 可选
     .signWith(key)
@@ -227,7 +227,7 @@ Skill（工具组）                  ToolDefinition（工具）
    {
      "message": "帮我查一下产品价格",
      "session_id": "abc123",
-     "merchant_id": "M001",
+     "user_id": "1234567890123456789",
      "available_skills": [
        {"name": "knowledge", "display_name": "知识库", "description": "...", "tool_count": 5}
      ],
@@ -250,7 +250,7 @@ Skill（工具组）                  ToolDefinition（工具）
      "arguments": {
        "query": "产品价格",
        "collection_name": "products",
-       "agent_id": "M001"
+       "user_id": "1234567890123456789"
      }
    }
 
@@ -298,7 +298,7 @@ const result = await fetch(tool.endpoint, {
   },
   body: JSON.stringify({
     tool_name: 'knowledge_search',
-    arguments: { query: '...', collection_name: 'products', agent_id: 'M001' }
+    arguments: { query: '...', collection_name: 'products', user_id: '1234567890123456789' }
   })
 }).then(r => r.json());
 // result.data 中包含工具执行结果
@@ -436,10 +436,31 @@ Authorization: Bearer {jwt_token}
 | 工具名称 | 显示名 | 功能 | 关键参数 |
 |---------|--------|------|---------|
 | `knowledge_search` | 知识库检索 | 混合检索返回相关分块 | query, collection_name, top_k |
-| `knowledge_ingest` | 知识库文本摄入 | 文本分块+向量化入 Milvus | text, collection_name, agent_id |
+| `knowledge_ingest` | 知识库文本摄入 | 文本分块+向量化入 Milvus | text, collection_name, user_id |
 | `knowledge_ingest_file` | 知识库文件上传 | 上传文档文件入知识库 | file_name, collection_name |
-| `knowledge_list_collections` | 列出知识库集合 | 列出所有集合及基本信息 | agent_id |
-| `knowledge_get_chunks` | 查看知识分块 | 分页浏览集合内的分块 | collection_name, agent_id |
+| `knowledge_list_collections` | 列出知识库集合 | 列出所有集合及基本信息 | user_id |
+| `knowledge_get_chunks` | 查看知识分块 | 分页浏览集合内的分块 | collection_name, user_id |
+
+### 4.7 知识库集合命名规则
+
+平台使用 Milvus 向量数据库存储知识库，物理集合名按以下规则拼接：
+
+```
+kb_{user_id}_{collection_name}
+```
+
+| 组成部分 | 说明 | 示例 |
+|---------|------|------|
+| `kb_` | 固定前缀 | — |
+| `{user_id}` | 用户雪花ID（纯数字） | `1234567890123456789` |
+| `{collection_name}` | 逻辑集合名，默认 `default` | `default`、`products` |
+
+**示例**：用户 `1234567890123456789` 上传文档到 `products` 集合 → Milvus 物理集合名为 `kb_1234567890123456789_products`
+
+**智能体检索知识库时**：
+- `user_id` 参数直接传 JWT 中的雪花ID（纯数字字符串），无需任何前缀
+- `collection_name` 传逻辑集合名（如 `default`、`products`）
+- 平台自动拼接为 `kb_{user_id}_{collection_name}` 查询 Milvus
 
 ---
 
@@ -502,7 +523,7 @@ Authorization: Bearer {jwt_token}
 {
   "message": "你好，请问有什么产品推荐？",
   "session_id": "550e8400-e29b-41d4-a716-446655440000",
-  "merchant_id": "M001",
+  "user_id": "1234567890123456789",
   "collection_name": "products",
   "context": [
     {"role": "user", "content": "之前的对话内容"},
@@ -519,10 +540,11 @@ Authorization: Bearer {jwt_token}
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
+| `user_id` | string | 是 | 用户ID（雪花ID），智能体据此查找用户的知识库集合 |
 | `available_skills` | array | 否 | 可用工具组目录，每个条目含 name、display_name、description、tool_count |
 | `tools_discovery_endpoint` | string | 否 | 工具详情查询端点，追加具体工具组名（如 `/knowledge`）后 GET 请求获取该组所有工具 |
 
-其余字段（`message`、`session_id`、`merchant_id` 等）保持不变。
+其余字段（`message`、`session_id` 等）保持不变。
 
 **响应**
 
@@ -792,9 +814,9 @@ Authorization: Bearer {jwt_token}
 3. 点击「注册」，平台立即调用健康检测接口验证可达性
 4. 注册成功后，智能体卡片显示在管理界面，能力标签和工具列表通过元信息接口自动获取
 
-### 6.2 绑定商家
+### 6.2 绑定用户
 
-在「用户智能体绑定」页面，将商家绑定到已注册的智能体，平台会将该商家的对话请求路由到此智能体。
+在智能体管理页面，将用户绑定到已注册的智能体。绑定只需选择用户，平台会将该用户通过 API Key 发起的对话请求路由到此智能体。绑定以 user_id（雪花ID）为唯一标识，一个用户只能绑定一个智能体。
 
 ### 6.3 配置共享密钥
 
@@ -814,8 +836,8 @@ Authorization: Bearer {jwt_token}
 
 ### 7.2 对话路由
 
-- 用户通过 API Key 发起对话请求 → 平台查询商家绑定 → 获取智能体 → 生成 JWT Token + 工具组目录 → 调用智能体的 `chat_endpoint`
-- 路由优先级：`agent_id` > `agent_endpoint` > `skill_id`
+- 用户通过 API Key 发起对话请求 → 平台查询用户绑定（按 user_id） → 获取智能体 → 生成 JWT Token + 工具组目录 → 调用智能体的 `chat_endpoint`
+- 路由优先级：`agent_id` > `agent_endpoint`
 
 ### 7.3 工具调用
 
@@ -827,7 +849,7 @@ Authorization: Bearer {jwt_token}
 ### 7.4 JWT 鉴权
 
 - 每次调用生成新 Token，有效期 1 小时
-- 试用场景 `merchant_id` 为 `"trial"`，`apiKey` 为空
+- 试用场景 `user_id` 为 `"trial"`，`apiKey` 为空
 - 工具执行和发现 API 复用同一 JWT
 
 ---
@@ -852,10 +874,10 @@ function verifyPlatformJWT(req, res, next) {
   try {
     const token = authHeader.substring(7);
     const payload = jwt.verify(token, SHARED_SECRET, { issuer: 'hczk-platform' });
-    req.merchant = {
-      id: payload.merchant_id,
+    req.user = {
+      id: payload.user_id,
       apiKey: payload.apiKey || null,
-      isTrial: payload.merchant_id === 'trial'
+      isTrial: payload.user_id === 'trial'
     };
     next();
   } catch (err) {
@@ -870,8 +892,8 @@ app.get('/api/health', (req, res) => {
 
 // 对话接口（需 JWT 认证，接收 tools_discovery_endpoint）
 app.post('/api/chat', verifyPlatformJWT, async (req, res) => {
-  const { message, session_id, merchant_id, available_skills, tools_discovery_endpoint } = req.body;
-  const { apiKey, isTrial } = req.merchant;
+  const { message, session_id, user_id, available_skills, tools_discovery_endpoint } = req.body;
+  const { apiKey, isTrial } = req.user;
 
   // 如果智能体需要调用平台工具：
   // 1. 查询工具组详情
@@ -880,7 +902,7 @@ app.post('/api/chat', verifyPlatformJWT, async (req, res) => {
   //    POST {返回的 endpoint}  body: {tool_name, arguments}
   // 3. 使用 JWT Token 鉴权（从 req.headers.authorization 获取）
 
-  const reply = await processMessage(message, session_id, merchant_id, apiKey);
+  const reply = await processMessage(message, session_id, user_id, apiKey);
   res.json({ reply, session_id, metadata: { model: 'deepseek-chat' } });
 });
 
@@ -924,7 +946,7 @@ SHARED_SECRET = os.environ.get("JWT_AGENT_SHARED_SECRET", "hczk-ai-platform-secr
 class ChatRequest(BaseModel):
     message: str
     session_id: str
-    merchant_id: str
+    user_id: str
     collection_name: str | None = None
     context: list | None = None
     available_skills: list | None = None
@@ -937,8 +959,8 @@ def verify_platform_jwt(request: Request):
     token = auth_header[7:]
     try:
         payload = jwt.decode(token, SHARED_SECRET, algorithms=["HS256"], issuer="hczk-platform")
-        return {"merchant_id": payload["merchant_id"], "api_key": payload.get("apiKey"),
-                "is_trial": payload["merchant_id"] == "trial", "token": token}
+        return {"user_id": payload["user_id"], "api_key": payload.get("apiKey"),
+                "is_trial": payload["user_id"] == "trial", "token": token}
     except jwt.InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"JWT 验证失败: {e}")
 
@@ -947,18 +969,18 @@ async def health():
     return {"status": "ok", "version": "1.0.0", "uptime": int(time.time() - start_time)}
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest, merchant=Depends(verify_platform_jwt)):
+async def chat(req: ChatRequest, user=Depends(verify_platform_jwt)):
     # 智能体可按需调用平台工具：
     # if req.tools_discovery_endpoint:
     #     url = req.tools_discovery_endpoint + "/knowledge"
     #     async with httpx.AsyncClient() as client:
-    #         tools = await client.get(url, headers={"Authorization": f"Bearer {merchant['token']}"})
+    #         tools = await client.get(url, headers={"Authorization": f"Bearer {user['token']}"})
     #     # ... 使用 tools 进行 function calling ...
-    reply = await process_message(req.message, req.session_id, req.merchant_id, merchant["api_key"])
+    reply = await process_message(req.message, req.session_id, req.user_id, user["api_key"])
     return {"reply": reply, "session_id": req.session_id}
 
 @app.post("/api/chat/stream")
-async def chat_stream(req: ChatRequest, merchant=Depends(verify_platform_jwt)):
+async def chat_stream(req: ChatRequest, user=Depends(verify_platform_jwt)):
     async def generate():
         yield f"data: {json.dumps({'type': 'thinking', 'content': '意图识别中...'})}\n\n"
         yield f"data: {json.dumps({'type': 'content', 'content': '您好！'})}\n\n"
@@ -1001,4 +1023,4 @@ A: 平台每次调用智能体时都会生成新的 JWT Token，有效期1小时
 A: 开发环境可直接使用与平台相同的密钥字符串；生产环境通过环境变量 `JWT_AGENT_SHARED_SECRET` 注入，与平台保持一致。
 
 **Q: 试用场景和正式场景的 JWT 有什么区别？**
-A: 试用场景下 `merchant_id` 为 `"trial"`，`apiKey` 为空；正式场景下为实际商家 ID 和 API Key。
+A: 试用场景下 `user_id` 为 `"trial"`，`apiKey` 为空；正式场景下为实际用户 ID 和 API Key。

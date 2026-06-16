@@ -11,6 +11,5 @@ public interface ApiKeyService {
     ApiKey createApiKey(Long userId, String name, BigDecimal unitPrice, List<Long> modelIds);
     ApiKey updateApiKey(Long id, String name, BigDecimal unitPrice, List<Long> modelIds);
     void deleteApiKey(Long id);
-    ApiKey getApiKeyByKey(String apiKey);
     ApiKey getActiveApiKey(String apiKey);
 }

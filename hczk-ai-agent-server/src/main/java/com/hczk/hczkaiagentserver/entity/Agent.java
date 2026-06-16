@@ -71,13 +71,6 @@ public class Agent {
     private String historyEndpoint;
 
     /**
-     * 认证头（可选）
-     * 平台调用智能体接口时携带的 Authorization 头
-     */
-    @TableField("auth_header")
-    private String authHeader;
-
-    /**
      * 智能体服务版本号（注册时填写，运行时可通过健康检测更新）
      */
     @TableField("version")
@@ -90,15 +83,6 @@ public class Agent {
     private Long userId;
 
     private AgentStatus status = AgentStatus.ACTIVE;
-
-    @TableField("total_calls")
-    private Long totalCalls = 0L;
-
-    @TableField("total_tokens")
-    private Long totalTokens = 0L;
-
-    @TableField("avg_latency")
-    private Integer avgLatency;
 
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

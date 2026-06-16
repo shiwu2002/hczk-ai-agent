@@ -4,9 +4,9 @@ import { useApiStore, API_BASE } from '@/stores/api';
 import { useAuthStore } from '@/stores/auth';
 import {
   Bot, Plus, Search, Trash2, Settings2, Power, X, RefreshCw, Wifi, WifiOff,
-  Activity, Zap, Heart, MessageSquare, FileUp, Info, Radio, History,
-  Send, ChevronDown, ChevronUp, Link2, UserCheck, Loader2, Sparkles,
-  Copy, Check, AlertCircle, UserPlus, KeyRound
+  Activity, Heart, MessageSquare,
+  Send, ChevronDown, Link2, Loader2, Sparkles,
+  UserPlus
 } from 'lucide-vue-next';
 
 const api = useApiStore();
@@ -23,11 +23,10 @@ const autoRefresh = ref(true);
 // 绑定数据
 const bindings = ref([]);
 const users = ref([]);
-const apiKeys = ref([]);
 // 绑定弹窗
 const showBindModal = ref(false);
 const bindTargetAgent = ref(null);
-const bindForm = ref({ userId: '', apiKeyId: '', enabled: true });
+const bindForm = ref({ userId: '', enabled: true });
 // 试用面板状态: { [agentId]: boolean }
 const trialOpenMap = ref({});
 // 试用对话状态: { [agentId]: { messages: [], input: '', loading: false } }
@@ -44,7 +43,6 @@ const newAgent = ref({
   documentEndpoint: '',
   infoEndpoint: '',
   historyEndpoint: '',
-  authHeader: '',
   version: ''
 });
 
@@ -75,16 +73,14 @@ onUnmounted(() => stopAutoRefresh());
 
 async function loadData() {
   loading.value = true;
-  const [agentRes, bindingRes, userRes, apiKeyRes] = await Promise.all([
+  const [agentRes, bindingRes, userRes] = await Promise.all([
     api.get('/platform/agents'),
     api.get('/platform/bindings').catch(() => ({ code: 200, data: [] })),
-    api.get('/users').catch(() => ({ code: 200, data: [] })),
-    api.get('/api-keys').catch(() => ({ code: 200, data: [] }))
+    api.get('/users').catch(() => ({ code: 200, data: [] }))
   ]);
   if (agentRes.code === 200) agents.value = agentRes.data || [];
   if (bindingRes.code === 200) bindings.value = bindingRes.data || [];
   if (userRes.code === 200) users.value = userRes.data || [];
-  if (apiKeyRes.code === 200) apiKeys.value = apiKeyRes.data || [];
   loading.value = false;
   await Promise.all([loadHealthStatus(), loadAllAgentInfo()]);
 }
@@ -176,7 +172,6 @@ async function saveAgent() {
     documentEndpoint: newAgent.value.documentEndpoint || null,
     infoEndpoint: newAgent.value.infoEndpoint || null,
     historyEndpoint: newAgent.value.historyEndpoint || null,
-    authHeader: newAgent.value.authHeader || null,
     version: newAgent.value.version || null
   };
 
@@ -210,7 +205,6 @@ function editAgent(agent) {
     documentEndpoint: agent.documentEndpoint || '',
     infoEndpoint: agent.infoEndpoint || '',
     historyEndpoint: agent.historyEndpoint || '',
-    authHeader: agent.authHeader || '',
     version: agent.version || ''
   };
   showAddModal.value = true;
@@ -227,7 +221,6 @@ function resetForm() {
     documentEndpoint: '',
     infoEndpoint: '',
     historyEndpoint: '',
-    authHeader: '',
     version: ''
   };
 }
@@ -299,22 +292,10 @@ function getUserName(userId) {
   return user ? user.username : `用户#${userId}`;
 }
 
-// 获取用户绑定的 API Key
-function getUserApiKeys(userId) {
-  return apiKeys.value.filter(k => k.userId === userId && k.status === 0);
-}
-
-// 获取绑定的 API Key 名称
-function getBindingKeyName(binding) {
-  if (!binding.apiKeyId) return null;
-  const key = apiKeys.value.find(k => k.id === binding.apiKeyId);
-  return key ? key.name : null;
-}
-
 // 打开绑定弹窗
 function openBindModal(agent) {
   bindTargetAgent.value = agent;
-  bindForm.value = { userId: '', apiKeyId: '', enabled: true };
+  bindForm.value = { userId: '', enabled: true };
   showBindModal.value = true;
 }
 
@@ -325,26 +306,13 @@ const bindableUsers = computed(() => {
   return users.value.filter(u => !boundUserIds.includes(u.id));
 });
 
-// 选中用户后可选的 API Keys
-const bindableApiKeys = computed(() => {
-  if (!bindForm.value.userId) return [];
-  return getUserApiKeys(bindForm.value.userId);
-});
-
 // 保存绑定
 async function saveBinding() {
   if (!bindForm.value.userId) { alert('请选择用户'); return; }
-  if (!bindForm.value.apiKeyId) { alert('请选择 API Key'); return; }
-
-  const selectedKey = apiKeys.value.find(k => k.id === bindForm.value.apiKeyId);
-  if (!selectedKey) { alert('API Key 不存在'); return; }
 
   const res = await api.post('/platform/bindings', {
-    merchantId: selectedKey.name,
     userId: bindForm.value.userId,
     agentId: bindTargetAgent.value.id,
-    apiKeyId: bindForm.value.apiKeyId,
-    apiKey: selectedKey.apiKey,
     enabled: bindForm.value.enabled
   });
 
@@ -357,9 +325,9 @@ async function saveBinding() {
 }
 
 // 解除绑定
-async function unbindUser(agentId, merchantId) {
+async function unbindUser(agentId, userId) {
   if (!confirm('确定解除该用户的绑定？')) return;
-  const res = await api.del(`/platform/bindings/${merchantId}`);
+  const res = await api.del(`/platform/bindings/${userId}`);
   if (res.code === 200) {
     loadData();
   } else {
@@ -369,7 +337,7 @@ async function unbindUser(agentId, merchantId) {
 
 // 切换绑定启用状态
 async function toggleBindingEnabled(binding) {
-  const res = await api.patch(`/platform/bindings/${binding.merchantId}?enabled=${!binding.enabled}`);
+  const res = await api.patch(`/platform/bindings/${binding.userId}?enabled=${!binding.enabled}`);
   if (res.code === 200) {
     binding.enabled = !binding.enabled;
   } else {
@@ -746,13 +714,12 @@ function scrollToTrialBottom(agentId) {
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <Link2 class="w-3 h-3 text-blue-400/70" />
                     <template v-if="getAgentBindings(agent.id).length > 0">
-                      <div v-for="binding in getAgentBindings(agent.id)" :key="binding.merchantId"
+                      <div v-for="binding in getAgentBindings(agent.id)" :key="binding.userId"
                         :class="['inline-flex items-center gap-1 px-1.5 py-px rounded text-[10px] border transition-colors', binding.enabled ? 'bg-blue-500/8 text-blue-400/80 border-blue-500/12' : 'bg-slate-500/5 text-slate-500 border-slate-500/8']">
                         <span class="cursor-pointer" @click="toggleBindingEnabled(binding)" title="点击切换启用状态">
                           {{ getUserName(binding.userId) }}
                         </span>
-                        <KeyRound v-if="getBindingKeyName(binding)" class="w-2 h-2 text-amber-400/60" :title="getBindingKeyName(binding)" />
-                        <button @click="unbindUser(agent.id, binding.merchantId)" class="ml-0.5 text-slate-600 hover:text-red-400 transition-colors" title="解绑">
+                        <button @click="unbindUser(agent.id, binding.userId)" class="ml-0.5 text-slate-600 hover:text-red-400 transition-colors" title="解绑">
                           <X class="w-2.5 h-2.5" />
                         </button>
                       </div>
@@ -1001,15 +968,6 @@ function scrollToTrialBottom(agentId) {
             </div>
           </div>
 
-          <!-- 认证配置 -->
-          <div>
-            <p class="text-[11px] text-slate-500 mb-3 uppercase tracking-widest font-semibold">认证配置</p>
-            <div>
-              <label class="block text-sm text-slate-300 mb-1.5 font-medium">认证头（可选）</label>
-              <input v-model="newAgent.authHeader" class="input-field font-mono text-xs" placeholder="Bearer sk-xxx" />
-              <p class="text-[11px] text-slate-500 mt-1">平台调用智能体接口时携带的 Authorization 头</p>
-            </div>
-          </div>
         </div>
         <div class="flex gap-3 mt-6 pt-4 border-t border-white/[0.06]">
           <button @click="showAddModal = false" class="btn-secondary flex-1">取消</button>
@@ -1024,7 +982,7 @@ function scrollToTrialBottom(agentId) {
         <div class="flex items-center justify-between mb-5">
           <div>
             <h2 class="text-lg font-bold text-white">绑定用户</h2>
-            <p class="text-xs text-slate-500 mt-0.5">将用户绑定到「{{ bindTargetAgent?.name }}」，绑定后该用户通过 API Key 调用时将自动路由到此智能体</p>
+            <p class="text-xs text-slate-500 mt-0.5">将用户绑定到「{{ bindTargetAgent?.name }}」，绑定后该用户的对话请求将自动路由到此智能体</p>
           </div>
           <button @click="showBindModal = false" class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors">
             <X class="w-5 h-5" />
@@ -1041,17 +999,6 @@ function scrollToTrialBottom(agentId) {
             <p v-if="bindableUsers.length === 0" class="text-[11px] text-amber-400/70 mt-1">所有用户已绑定此智能体</p>
           </div>
 
-          <!-- 选择 API Key -->
-          <div v-if="bindForm.userId">
-            <label class="block text-sm text-slate-300 mb-1.5 font-medium">选择 API Key <span class="text-red-400">*</span></label>
-            <select v-model="bindForm.apiKeyId" class="input-field">
-              <option value="">请选择 API Key</option>
-              <option v-for="key in bindableApiKeys" :key="key.id" :value="key.id">{{ key.name }} ({{ key.apiKey?.substring(0, 12) }}...)</option>
-            </select>
-            <p v-if="bindableApiKeys.length === 0" class="text-[11px] text-amber-400/70 mt-1">该用户无可用 API Key，请先在 API Keys 页面创建</p>
-            <p v-else class="text-[11px] text-slate-500 mt-1">绑定后，使用此 API Key 调用 /api/chat 将自动路由到此智能体，并携带密钥</p>
-          </div>
-
           <!-- 启用状态 -->
           <div class="flex items-center gap-2">
             <input id="bind-enabled" v-model="bindForm.enabled" type="checkbox" class="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-500" />
@@ -1060,7 +1007,7 @@ function scrollToTrialBottom(agentId) {
         </div>
         <div class="flex gap-3 mt-6 pt-4 border-t border-white/[0.06]">
           <button @click="showBindModal = false" class="btn-secondary flex-1">取消</button>
-          <button @click="saveBinding" :disabled="!bindForm.userId || !bindForm.apiKeyId" :class="['flex-1', (!bindForm.userId || !bindForm.apiKeyId) ? 'btn-secondary opacity-50 cursor-not-allowed' : 'btn-primary']">确认绑定</button>
+          <button @click="saveBinding" :disabled="!bindForm.userId" :class="['flex-1', !bindForm.userId ? 'btn-secondary opacity-50 cursor-not-allowed' : 'btn-primary']">确认绑定</button>
         </div>
       </div>
     </div>

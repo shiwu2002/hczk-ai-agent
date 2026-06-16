@@ -22,52 +22,47 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
     private final MerchantAgentBindingMapper bindingMapper;
     private final RedisCacheService redisCache;
     private final ObjectMapper objectMapper;
-    private static final String CACHE_PREFIX = "bindings:merchant:";
+    private static final String CACHE_PREFIX = "bindings:user:";
 
     @Override
     @Transactional
     public MerchantAgentBinding createBinding(MerchantAgentBinding binding) {
-        Optional<MerchantAgentBinding> existing = findByMerchantId(binding.getMerchantId());
+        if (binding.getUserId() == null) {
+            throw new RuntimeException("必须提供 user_id");
+        }
+        Optional<MerchantAgentBinding> existing = findByUserId(binding.getUserId());
         if (existing.isPresent()) {
-            throw new RuntimeException("商家已存在绑定: " + binding.getMerchantId());
+            throw new RuntimeException("用户已存在绑定: userId=" + binding.getUserId());
         }
 
-        // 至少需要一种绑定方式：agentId、skillId 或 agentEndpoint
-        if (binding.getAgentId() == null && binding.getSkillId() == null && binding.getAgentEndpoint() == null) {
-            throw new RuntimeException("必须提供 agent_id、skill_id 或 agent_endpoint");
-        }
-
-        // skillId 和 agentEndpoint 不能同时提供
-        if (binding.getSkillId() != null && binding.getAgentEndpoint() != null) {
-            throw new RuntimeException("skill_id 和 agent_endpoint 不能同时提供");
+        // 至少需要一种绑定方式：agentId 或 agentEndpoint
+        if (binding.getAgentId() == null && binding.getAgentEndpoint() == null) {
+            throw new RuntimeException("必须提供 agent_id 或 agent_endpoint");
         }
 
         bindingMapper.insert(binding);
-        redisCache.deleteKey(CACHE_PREFIX + binding.getMerchantId());
-        log.info("创建商家绑定: merchantId={}, agentId={}, skillId={}, endpoint={}, apiKeyId={}",
-                binding.getMerchantId(), binding.getAgentId(), binding.getSkillId(),
-                binding.getAgentEndpoint(), binding.getApiKeyId());
+        redisCache.deleteKey(CACHE_PREFIX + binding.getUserId());
+        log.info("创建绑定: userId={}, agentId={}, endpoint={}",
+                binding.getUserId(), binding.getAgentId(),
+                binding.getAgentEndpoint());
         return binding;
     }
 
     @Override
     @Transactional
-    public MerchantAgentBinding updateBinding(String merchantId, MerchantAgentBinding binding) {
-        Optional<MerchantAgentBinding> existing = findByMerchantId(merchantId);
+    public MerchantAgentBinding updateBinding(Long userId, MerchantAgentBinding binding) {
+        Optional<MerchantAgentBinding> existing = findByUserId(userId);
         if (existing.isEmpty()) {
-            throw new RuntimeException("商家绑定不存在: " + merchantId);
+            throw new RuntimeException("绑定不存在: userId=" + userId);
         }
 
         MerchantAgentBinding update = existing.get();
-        if (binding.getSkillId() != null) {
-            update.setSkillId(binding.getSkillId());
-            update.setAgentEndpoint(null);
-            update.setAgentAuthHeader(null);
+        if (binding.getAgentId() != null) {
+            update.setAgentId(binding.getAgentId());
         }
         if (binding.getAgentEndpoint() != null) {
             update.setAgentEndpoint(binding.getAgentEndpoint());
             update.setAgentAuthHeader(binding.getAgentAuthHeader());
-            update.setSkillId(null);
         }
         if (binding.getPersonaOverride() != null) {
             update.setPersonaOverride(binding.getPersonaOverride());
@@ -83,35 +78,35 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
         }
 
         bindingMapper.updateById(update);
-        redisCache.deleteKey(CACHE_PREFIX + merchantId);
-        log.info("更新商家绑定: merchantId={}", merchantId);
+        redisCache.deleteKey(CACHE_PREFIX + userId);
+        log.info("更新绑定: userId={}", userId);
         return update;
     }
 
     @Override
     @Transactional
-    public void deleteBinding(String merchantId) {
-        Optional<MerchantAgentBinding> existing = findByMerchantId(merchantId);
+    public void deleteBinding(Long userId) {
+        Optional<MerchantAgentBinding> existing = findByUserId(userId);
         if (existing.isEmpty()) {
-            throw new RuntimeException("商家绑定不存在: " + merchantId);
+            throw new RuntimeException("绑定不存在: userId=" + userId);
         }
         bindingMapper.deleteById(existing.get().getId());
-        redisCache.deleteKey(CACHE_PREFIX + merchantId);
-        log.info("删除商家绑定: merchantId={}", merchantId);
+        redisCache.deleteKey(CACHE_PREFIX + userId);
+        log.info("删除绑定: userId={}", userId);
     }
 
     @Override
-    public Optional<MerchantAgentBinding> findByMerchantId(String merchantId) {
-        String cacheKey = CACHE_PREFIX + merchantId;
+    public Optional<MerchantAgentBinding> findByUserId(Long userId) {
+        String cacheKey = CACHE_PREFIX + userId;
         String cached = redisCache.getCachedJson(cacheKey);
         if (cached != null) {
             try {
                 MerchantAgentBinding binding = objectMapper.readValue(cached, MerchantAgentBinding.class);
                 return Optional.ofNullable(binding);
-            } catch (Exception e) { log.debug("绑定缓存反序列化失败，回源: merchantId={}", merchantId); }
+            } catch (Exception e) { log.debug("绑定缓存反序列化失败，回源: userId={}", userId); }
         }
         LambdaQueryWrapper<MerchantAgentBinding> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(MerchantAgentBinding::getMerchantId, merchantId);
+        wrapper.eq(MerchantAgentBinding::getUserId, userId);
         MerchantAgentBinding binding = bindingMapper.selectOne(wrapper);
         if (binding != null) {
             try { redisCache.cacheJsonWithRandomTTL(cacheKey, objectMapper.writeValueAsString(binding)); } catch (Exception ignored) {}
@@ -126,16 +121,16 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
 
     @Override
     @Transactional
-    public MerchantAgentBinding toggleBinding(String merchantId, boolean enabled) {
-        Optional<MerchantAgentBinding> existing = findByMerchantId(merchantId);
+    public MerchantAgentBinding toggleBinding(Long userId, boolean enabled) {
+        Optional<MerchantAgentBinding> existing = findByUserId(userId);
         if (existing.isEmpty()) {
-            throw new RuntimeException("商家绑定不存在: " + merchantId);
+            throw new RuntimeException("绑定不存在: userId=" + userId);
         }
         MerchantAgentBinding binding = existing.get();
         binding.setEnabled(enabled);
         bindingMapper.updateById(binding);
-        redisCache.deleteKey(CACHE_PREFIX + merchantId);
-        log.info("切换商家绑定状态: merchantId={}, enabled={}", merchantId, enabled);
+        redisCache.deleteKey(CACHE_PREFIX + userId);
+        log.info("切换绑定状态: userId={}, enabled={}", userId, enabled);
         return binding;
     }
 }

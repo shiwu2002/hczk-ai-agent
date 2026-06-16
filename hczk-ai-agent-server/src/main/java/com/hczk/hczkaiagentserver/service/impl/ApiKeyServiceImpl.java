@@ -126,22 +126,6 @@ public class ApiKeyServiceImpl implements ApiKeyService {
     }
 
     /**
-     * 根据密钥串查询API Key（不校验状态）
-     *
-     * @param apiKey 密钥串
-     * @return API Key实体
-     * @throws RuntimeException API Key不存在
-     */
-    @Override
-    public ApiKey getApiKeyByKey(String apiKey) {
-        ApiKey key = apiKeyMapper.selectOne(new LambdaQueryWrapper<ApiKey>().eq(ApiKey::getApiKey, apiKey));
-        if (key == null) {
-            throw new RuntimeException("API Key 不存在");
-        }
-        return key;
-    }
-
-    /**
      * 根据密钥串查询可用的API Key（仅返回status=0的Key）
      *
      * @param apiKey 密钥串

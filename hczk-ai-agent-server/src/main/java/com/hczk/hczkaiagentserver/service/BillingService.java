@@ -61,21 +61,6 @@ public interface BillingService {
     boolean deductBalance(Long userId, Long apiKeyId, Long modelId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail);
 
     /**
-     * 异步扣减余额
-     *
-     * 由 RabbitMQ 消费者调用，实现异步计费，不阻塞主业务流程。
-     *
-     * @param userId       用户ID
-     * @param apiKeyId     API Key ID
-     * @param modelId      调用的模型ID
-     * @param amount       扣减金额
-     * @param inputTokens  输入Token数
-     * @param outputTokens 输出Token数
-     * @param detail       扣费详情描述
-     */
-    void deductBalanceAsync(Long userId, Long apiKeyId, Long modelId, BigDecimal amount, Long inputTokens, Long outputTokens, String detail);
-
-    /**
      * 获取用户余额（从数据库）
      * 
      * @param userId 用户ID

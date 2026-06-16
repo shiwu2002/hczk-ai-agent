@@ -10,10 +10,8 @@ const apiKeys = ref([])
 const billingRecords = ref([])
 const models = ref([])
 const chartHover = ref(-1)
-const chartClick = ref(-1)
 const showDayDetail = ref(false)
 const dayDetailData = ref(null)
-const scrollRef = ref(null)
 const showUserDetail = ref(false)
 const userDetailData = ref(null)
 
@@ -246,15 +244,7 @@ function onChartLeave() {
   chartHover.value = -1
 }
 function onChartClick(i) {
-  chartClick.value = i
   openDayDetail(i)
-}
-
-// Scroll timeline
-function scrollTimeline(dir) {
-  if (scrollRef.value) {
-    scrollRef.value.scrollBy({ left: dir * 200, behavior: 'smooth' })
-  }
 }
 
 // Open day detail

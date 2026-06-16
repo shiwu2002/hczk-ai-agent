@@ -171,7 +171,7 @@ public class PlatformController {
         return Result.success(toolDefinitionService.getActiveToolDefinitions(baseUrl));
     }
 
-    // ========== 商家绑定管理 ==========
+    // ========== 绑定管理 ==========
 
     @PostMapping("/bindings")
     public Result<MerchantAgentBinding> createBinding(@RequestBody MerchantAgentBinding binding) {
@@ -183,26 +183,26 @@ public class PlatformController {
         return Result.success(bindingService.getAllBindings());
     }
 
-    @GetMapping("/bindings/{merchantId}")
-    public Result<MerchantAgentBinding> getBindingByMerchantId(@PathVariable String merchantId) {
-        return bindingService.findByMerchantId(merchantId)
+    @GetMapping("/bindings/{userId}")
+    public Result<MerchantAgentBinding> getBindingByUserId(@PathVariable Long userId) {
+        return bindingService.findByUserId(userId)
                 .map(Result::success)
                 .orElse(Result.error("绑定不存在"));
     }
 
-    @PutMapping("/bindings/{merchantId}")
-    public Result<MerchantAgentBinding> updateBinding(@PathVariable String merchantId, @RequestBody MerchantAgentBinding binding) {
-        return Result.success(bindingService.updateBinding(merchantId, binding));
+    @PutMapping("/bindings/{userId}")
+    public Result<MerchantAgentBinding> updateBinding(@PathVariable Long userId, @RequestBody MerchantAgentBinding binding) {
+        return Result.success(bindingService.updateBinding(userId, binding));
     }
 
-    @DeleteMapping("/bindings/{merchantId}")
-    public Result<Void> deleteBinding(@PathVariable String merchantId) {
-        bindingService.deleteBinding(merchantId);
+    @DeleteMapping("/bindings/{userId}")
+    public Result<Void> deleteBinding(@PathVariable Long userId) {
+        bindingService.deleteBinding(userId);
         return Result.success();
     }
 
-    @PatchMapping("/bindings/{merchantId}")
-    public Result<MerchantAgentBinding> toggleBinding(@PathVariable String merchantId, @RequestParam boolean enabled) {
-        return Result.success(bindingService.toggleBinding(merchantId, enabled));
+    @PatchMapping("/bindings/{userId}")
+    public Result<MerchantAgentBinding> toggleBinding(@PathVariable Long userId, @RequestParam boolean enabled) {
+        return Result.success(bindingService.toggleBinding(userId, enabled));
     }
 }

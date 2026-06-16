@@ -49,8 +49,4 @@ public class Skill {
     /** 该工具组下的工具数量（Transient，由 Service 填充） */
     @TableField(exist = false)
     private Integer toolCount;
-
-    /** 该工具组下的工具列表（Transient，按需填充） */
-    @TableField(exist = false)
-    private java.util.List<ToolDefinition> tools;
 }
