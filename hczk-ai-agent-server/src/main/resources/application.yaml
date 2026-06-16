@@ -52,6 +52,10 @@ spring:
 jwt:
   expiration: 86400000
   refresh-expiration: 604800000
+  agent:
+    shared-secret: ${JWT_AGENT_SHARED_SECRET:hczk-agent-jwt-secret-2026-very-long-and-secure}
+    expiration: 3600000
+    issuer: hczk-platform
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml

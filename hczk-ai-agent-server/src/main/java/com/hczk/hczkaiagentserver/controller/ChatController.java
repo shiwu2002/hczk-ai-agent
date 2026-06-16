@@ -8,6 +8,7 @@ import com.hczk.hczkaiagentserver.service.AgentService;
 import com.hczk.hczkaiagentserver.service.ApiKeyService;
 import com.hczk.hczkaiagentserver.service.ChatService;
 import com.hczk.hczkaiagentserver.service.MerchantAgentBindingService;
+import com.hczk.hczkaiagentserver.util.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,13 +18,16 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 /**
  * 聊天接口控制器
@@ -42,6 +46,7 @@ public class ChatController {
     private final ApiKeyService apiKeyService;
     private final AgentService agentService;
     private final MerchantAgentBindingService bindingService;
+    private final JwtUtil jwtUtil;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
@@ -50,10 +55,149 @@ public class ChatController {
      */
     @PostMapping(value = "/chat/completions", produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE})
     public Object completions(@RequestBody ChatRequest request) {
+        // 如果请求包含 agentId，走智能体代理逻辑
+        Long agentId = request.getResolvedAgentId();
+        if (agentId != null) {
+            return trialChat(agentId, request);
+        }
+        // 否则走原有的模型调用逻辑
         if (Boolean.FALSE.equals(request.getStream())) {
             return chatService.chat(request);
         }
         return chatService.streamChat(request);
+    }
+
+    /**
+     * 智能体试用接口（管理后台专用，JWT 认证）
+     * 通过 agentId 代理请求到智能体的 endpoint，支持流式和非流式
+     */
+    private Object trialChat(Long agentId, ChatRequest request) {
+        Agent agent = agentService.getAgentById(agentId);
+        if (agent == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "智能体不存在"));
+        }
+        if (agent.getChatEndpoint() == null || agent.getChatEndpoint().trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "智能体对话接口未配置"));
+        }
+        if (agent.getStatus() != null && agent.getStatus().ordinal() != 0) {
+            return ResponseEntity.badRequest().body(Map.of("error", "智能体已禁用"));
+        }
+
+        String message = request.getEffectiveMessage();
+        if (message == null || message.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "消息内容不能为空"));
+        }
+
+        boolean useStream = Boolean.TRUE.equals(request.getStream());
+        String streamEndpoint = agent.getStreamEndpoint();
+
+        // 如果请求流式且智能体配置了流式端点，使用 SSE 代理
+        if (useStream && streamEndpoint != null && !streamEndpoint.trim().isEmpty()) {
+            return proxyTrialSse(agent, message);
+        }
+
+        // 否则使用同步调用
+        return syncTrialCall(agent, message);
+    }
+
+    /**
+     * 智能体试用 - SSE 流式代理
+     */
+    private SseEmitter proxyTrialSse(Agent agent, String message) {
+        SseEmitter emitter = new SseEmitter(60000L);
+
+        sseExecutor.execute(() -> {
+            try {
+                String streamUrl = agent.getStreamEndpoint();
+                HttpURLConnection conn = (HttpURLConnection) URI.create(streamUrl).toURL().openConnection();
+                conn.setRequestMethod("POST");
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setRequestProperty("Accept", "text/event-stream");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(60000);
+
+                // 使用JWT鉴权：生成智能体调用JWT，通过 Authorization 头传递
+                String agentToken = jwtUtil.generateAgentToken("trial", null);
+                conn.setRequestProperty("Authorization", "Bearer " + agentToken);
+
+                // 发送请求体（使用 Jackson 序列化为合法 JSON）
+                Map<String, String> bodyMap = Map.of(
+                    "message", message,
+                    "session_id", UUID.randomUUID().toString(),
+                    "merchant_id", "trial"
+                );
+                String body = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(body.getBytes());
+                    os.flush();
+                }
+
+                // 读取 SSE 响应并转发
+                int responseCode = conn.getResponseCode();
+                if (responseCode != 200) {
+                    String error = new BufferedReader(new InputStreamReader(conn.getErrorStream()))
+                        .lines().collect(Collectors.joining("\n"));
+                    emitter.send(SseEmitter.event().data("{\"error\":\"智能体返回错误: " + responseCode + "\"}"));
+                    emitter.complete();
+                    return;
+                }
+
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (!line.isEmpty()) {
+                            // 智能体返回的行可能带 "data:" 前缀，去掉后让 SseEmitter 统一包装
+                            String dataContent = line.startsWith("data:") ? line.substring(5).trim() : line;
+                            emitter.send(SseEmitter.event().data(dataContent));
+                        }
+                    }
+                }
+                emitter.complete();
+            } catch (Exception e) {
+                log.error("智能体试用流式代理失败: agentId={}, error={}", agent.getId(), e.getMessage());
+                try {
+                    emitter.send(SseEmitter.event().data("{\"error\":\"" + e.getMessage() + "\"}"));
+                    emitter.completeWithError(e);
+                } catch (IOException ex) {
+                    emitter.completeWithError(ex);
+                }
+            }
+        });
+
+        return emitter;
+    }
+
+    /**
+     * 智能体试用 - 同步调用
+     */
+    private ResponseEntity<?> syncTrialCall(Agent agent, String message) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            // 使用JWT鉴权：生成智能体调用JWT
+            String agentToken = jwtUtil.generateAgentToken("trial", null);
+            headers.set("Authorization", "Bearer " + agentToken);
+
+            Map<String, Object> body = Map.of(
+                "merchant_id", "trial",
+                "message", message,
+                "session_id", UUID.randomUUID().toString()
+            );
+
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+            log.info("智能体试用同步调用: agentId={}, chatEndpoint={}", agent.getId(), agent.getChatEndpoint());
+            @SuppressWarnings("unchecked")
+            ResponseEntity<Map> response = restTemplate.postForEntity(
+                agent.getChatEndpoint(), request, Map.class);
+
+            return ResponseEntity.ok(response.getBody());
+        } catch (Exception e) {
+            log.error("智能体试用同步调用失败: agentId={}, error={}", agent.getId(), e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", "调用智能体失败: " + e.getMessage()));
+        }
     }
 
     /**
@@ -161,9 +305,11 @@ public class ChatController {
             // 拼接完整 URL：historyEndpoint/sessionId
             String fullUrl = historyUrl.replaceAll("/+$", "") + "/" + sessionId;
             HttpHeaders headers = new HttpHeaders();
-            if (agent.getAuthHeader() != null && !agent.getAuthHeader().trim().isEmpty()) {
-                headers.set("Authorization", agent.getAuthHeader());
-            }
+            // 使用JWT鉴权
+            String agentToken = jwtUtil.generateAgentToken(
+                    bindingOpt.get().getMerchantId() != null ? bindingOpt.get().getMerchantId() : String.valueOf(key.getUserId()),
+                    bindingOpt.get().getApiKey());
+            headers.set("Authorization", "Bearer " + agentToken);
 
             @SuppressWarnings("unchecked")
             ResponseEntity<Map> response = restTemplate.exchange(fullUrl, HttpMethod.GET,
@@ -204,9 +350,11 @@ public class ChatController {
 
             String fullUrl = historyUrl.replaceAll("/+$", "") + "/" + sessionId;
             HttpHeaders headers = new HttpHeaders();
-            if (agent.getAuthHeader() != null && !agent.getAuthHeader().trim().isEmpty()) {
-                headers.set("Authorization", agent.getAuthHeader());
-            }
+            // 使用JWT鉴权
+            String agentToken = jwtUtil.generateAgentToken(
+                    bindingOpt.get().getMerchantId() != null ? bindingOpt.get().getMerchantId() : String.valueOf(key.getUserId()),
+                    bindingOpt.get().getApiKey());
+            headers.set("Authorization", "Bearer " + agentToken);
 
             @SuppressWarnings("unchecked")
             ResponseEntity<Map> response = restTemplate.exchange(fullUrl, HttpMethod.DELETE,
@@ -282,14 +430,12 @@ public class ChatController {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-            // 优先使用智能体自身的认证头
-            if (agent.getAuthHeader() != null && !agent.getAuthHeader().trim().isEmpty()) {
-                headers.set("Authorization", agent.getAuthHeader());
-            }
-            // 如果绑定中配置了 API Key，作为 X-Api-Key 传递给智能体
-            if (binding != null && binding.getApiKey() != null && !binding.getApiKey().trim().isEmpty()) {
-                headers.set("X-Api-Key", binding.getApiKey());
-            }
+            // 使用JWT鉴权：将merchantId和apiKey封装到JWT中，不再明文传递
+            String merchantId = binding != null && binding.getMerchantId() != null
+                    ? binding.getMerchantId() : String.valueOf(userId);
+            String apiKey = binding != null ? binding.getApiKey() : null;
+            String agentToken = jwtUtil.generateAgentToken(merchantId, apiKey);
+            headers.set("Authorization", "Bearer " + agentToken);
 
             Map<String, Object> body = new java.util.HashMap<>();
             body.put("merchant_id", String.valueOf(userId));
@@ -332,13 +478,12 @@ public class ChatController {
                 conn.setDoOutput(true);
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setRequestProperty("Accept", "text/event-stream");
-                if (agent.getAuthHeader() != null && !agent.getAuthHeader().trim().isEmpty()) {
-                    conn.setRequestProperty("Authorization", agent.getAuthHeader());
-                }
-                // 传递绑定的 API Key
-                if (binding != null && binding.getApiKey() != null && !binding.getApiKey().trim().isEmpty()) {
-                    conn.setRequestProperty("X-Api-Key", binding.getApiKey());
-                }
+                // 使用JWT鉴权：将merchantId和apiKey封装到JWT中
+                String merchantId = binding != null && binding.getMerchantId() != null
+                        ? binding.getMerchantId() : String.valueOf(userId);
+                String apiKey = binding != null ? binding.getApiKey() : null;
+                String agentToken = jwtUtil.generateAgentToken(merchantId, apiKey);
+                conn.setRequestProperty("Authorization", "Bearer " + agentToken);
                 conn.setConnectTimeout(5000);
                 conn.setReadTimeout(60000);
 
@@ -422,6 +567,9 @@ public class ChatController {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            // 使用JWT鉴权
+            String agentToken = jwtUtil.generateAgentToken(String.valueOf(userId), null);
+            headers.set("Authorization", "Bearer " + agentToken);
 
             Map<String, Object> body = new java.util.HashMap<>();
             body.put("merchant_id", String.valueOf(userId));
@@ -451,13 +599,12 @@ public class ChatController {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-            if (authHeader != null) {
-                headers.set("Authorization", authHeader);
-            }
-            // 如果绑定中配置了 API Key，作为 X-Api-Key 传递
-            if (binding != null && binding.getApiKey() != null && !binding.getApiKey().trim().isEmpty()) {
-                headers.set("X-Api-Key", binding.getApiKey());
-            }
+            // 使用JWT鉴权：将merchantId和apiKey封装到JWT中
+            String merchantId = binding != null && binding.getMerchantId() != null
+                    ? binding.getMerchantId() : String.valueOf(userId);
+            String apiKey = binding != null ? binding.getApiKey() : null;
+            String agentToken = jwtUtil.generateAgentToken(merchantId, apiKey);
+            headers.set("Authorization", "Bearer " + agentToken);
 
             Map<String, Object> body = Map.of(
                 "merchant_id", String.valueOf(userId),
