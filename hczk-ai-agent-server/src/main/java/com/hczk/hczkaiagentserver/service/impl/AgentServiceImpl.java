@@ -5,6 +5,8 @@ import com.hczk.hczkaiagentserver.entity.Agent;
 import com.hczk.hczkaiagentserver.enums.AgentStatus;
 import com.hczk.hczkaiagentserver.mapper.AgentMapper;
 import com.hczk.hczkaiagentserver.service.AgentService;
+import com.hczk.hczkaiagentserver.service.RedisCacheService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -14,22 +16,20 @@ import org.springframework.web.client.RestTemplate;
 import java.time.LocalDateTime;
 import java.util.*;
 
-/**
- * 智能体服务实现类
- *
- * 提供智能体的注册、管理和健康检测功能。
- * 每个注册的智能体必须实现 healthEndpoint 和 chatEndpoint 接口，
- * 平台通过这些接口统一监控和调用。
- */
 @Service
 @Slf4j
 public class AgentServiceImpl implements AgentService {
 
     private final AgentMapper agentMapper;
+    private final RedisCacheService redisCache;
+    private final ObjectMapper objectMapper;
     private final RestTemplate healthRestTemplate;
+    private static final String CACHE_KEY = "agents:all";
 
-    public AgentServiceImpl(AgentMapper agentMapper) {
+    public AgentServiceImpl(AgentMapper agentMapper, RedisCacheService redisCache, ObjectMapper objectMapper) {
         this.agentMapper = agentMapper;
+        this.redisCache = redisCache;
+        this.objectMapper = objectMapper;
         var requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(3000);
         requestFactory.setReadTimeout(3000);
@@ -38,7 +38,15 @@ public class AgentServiceImpl implements AgentService {
 
     @Override
     public List<Agent> getAllAgents() {
-        return agentMapper.selectList(null);
+        String cached = redisCache.getCachedJson(CACHE_KEY);
+        if (cached != null) {
+            try {
+                return objectMapper.readValue(cached, objectMapper.getTypeFactory().constructCollectionType(List.class, Agent.class));
+            } catch (Exception e) { log.debug("agents缓存反序列化失败，回源"); }
+        }
+        List<Agent> list = agentMapper.selectList(null);
+        try { redisCache.cacheJsonWithRandomTTL(CACHE_KEY, objectMapper.writeValueAsString(list)); } catch (Exception ignored) {}
+        return list;
     }
 
     @Override
@@ -73,6 +81,7 @@ public class AgentServiceImpl implements AgentService {
         }
 
         agentMapper.insert(agent);
+        redisCache.deleteKey(CACHE_KEY);
         return agent;
     }
 
@@ -93,6 +102,7 @@ public class AgentServiceImpl implements AgentService {
         existing.setVersion(agent.getVersion());
 
         agentMapper.updateById(existing);
+        redisCache.deleteKey(CACHE_KEY);
         return existing;
     }
 
@@ -100,6 +110,7 @@ public class AgentServiceImpl implements AgentService {
     @Transactional
     public void deleteAgent(Long id) {
         agentMapper.deleteById(id);
+        redisCache.deleteKey(CACHE_KEY);
     }
 
     @Override
@@ -108,6 +119,7 @@ public class AgentServiceImpl implements AgentService {
         Agent agent = getAgentById(id);
         agent.setStatus(agent.getStatus() == AgentStatus.ACTIVE ? AgentStatus.INACTIVE : AgentStatus.ACTIVE);
         agentMapper.updateById(agent);
+        redisCache.deleteKey(CACHE_KEY);
         return agent;
     }
 

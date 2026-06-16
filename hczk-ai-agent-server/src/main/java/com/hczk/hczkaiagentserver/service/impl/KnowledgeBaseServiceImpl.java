@@ -4,17 +4,24 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hczk.hczkaiagentserver.entity.KnowledgeBase;
 import com.hczk.hczkaiagentserver.mapper.KnowledgeBaseMapper;
 import com.hczk.hczkaiagentserver.service.KnowledgeBaseService;
+import com.hczk.hczkaiagentserver.service.RedisCacheService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
     private final KnowledgeBaseMapper knowledgeBaseMapper;
+    private final RedisCacheService redisCache;
+    private final ObjectMapper objectMapper;
+    private static final String CACHE_PREFIX = "kb:bases:";
 
     @Override
     public List<KnowledgeBase> getAllKnowledgeBases() {
@@ -66,6 +73,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         }
 
         knowledgeBaseMapper.insert(knowledgeBase);
+        redisCache.invalidateByPrefix(CACHE_PREFIX);
         return knowledgeBase;
     }
 
@@ -78,6 +86,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         existing.setRowCount(knowledgeBase.getRowCount());
         existing.setStatus(knowledgeBase.getStatus());
         knowledgeBaseMapper.updateById(existing);
+        redisCache.invalidateByPrefix(CACHE_PREFIX);
         return existing;
     }
 
@@ -85,6 +94,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     @Transactional
     public void deleteKnowledgeBase(Long id) {
         knowledgeBaseMapper.deleteById(id);
+        redisCache.invalidateByPrefix(CACHE_PREFIX);
     }
 
     @Override
@@ -98,9 +108,19 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
     @Override
     public KnowledgeBase findByAgentIdAndCollection(String agentId, String collectionName) {
-        return knowledgeBaseMapper.selectOne(
+        String cacheKey = CACHE_PREFIX + agentId + ":" + collectionName;
+        String cached = redisCache.getCachedJson(cacheKey);
+        if (cached != null) {
+            try { return objectMapper.readValue(cached, KnowledgeBase.class); }
+            catch (Exception e) { log.debug("kb缓存反序列化失败，回源"); }
+        }
+        KnowledgeBase kb = knowledgeBaseMapper.selectOne(
                 new LambdaQueryWrapper<KnowledgeBase>()
                         .eq(KnowledgeBase::getAgentId, agentId)
                         .eq(KnowledgeBase::getCollectionName, collectionName));
+        if (kb != null) {
+            try { redisCache.cacheJsonWithRandomTTL(cacheKey, objectMapper.writeValueAsString(kb)); } catch (Exception ignored) {}
+        }
+        return kb;
     }
 }

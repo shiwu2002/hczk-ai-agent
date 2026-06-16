@@ -245,7 +245,10 @@ public class OpenAiCompatibleChatModel implements ChatModel {
                             // 将思考内容通过metadata标记传递，不丢弃
                             Map<String, Object> metadata = new HashMap<>();
                             metadata.put("reasoning", true);
-                            AssistantMessage thinkingMessage = new AssistantMessage(delta.getReasoningContent(), metadata);
+                            AssistantMessage thinkingMessage = AssistantMessage.builder()
+                                    .content(delta.getReasoningContent())
+                                    .properties(metadata)
+                                    .build();
                             Generation generation = new Generation(thinkingMessage);
                             return Flux.just(new ChatResponse(Collections.singletonList(generation)));
                         }
