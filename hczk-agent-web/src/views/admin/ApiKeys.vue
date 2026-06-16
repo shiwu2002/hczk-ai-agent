@@ -1,18 +1,25 @@
+<!--
+  API Keys 管理页面（管理员）
+  功能：API密钥的创建、编辑、删除、复制，支持搜索和分页
+-->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useApiStore } from '@/stores/api'
 import { KeyRound, Plus, Search, Trash2, Copy, Check, X, Settings2, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 const api = useApiStore()
-const loading = ref(false)
-const showAddModal = ref(false)
-const showEditModal = ref(false)
-const searchQuery = ref('')
 
-const users = ref([])
-const apiKeys = ref([])
-const models = ref([])
+// ========== 状态变量 ==========
+const loading = ref(false)          // 加载状态
+const showAddModal = ref(false)     // 显示创建弹窗
+const showEditModal = ref(false)    // 显示编辑弹窗
+const searchQuery = ref('')         // 搜索关键词
 
+const users = ref([])               // 用户列表（创建时选择绑定用户）
+const apiKeys = ref([])             // API Key 列表
+const models = ref([])              // 可用模型列表（仅启用状态的）
+
+// 创建表单
 const newApiKey = ref({
   userId: '',
   name: '',
@@ -20,17 +27,20 @@ const newApiKey = ref({
   modelIds: []
 })
 
-const editingKey = ref(null)
+// 编辑表单
+const editingKey = ref(null)        // 当前编辑的Key对象
 const editForm = ref({
   name: '',
   unitPrice: 0,
   modelIds: []
 })
 
-const copiedKey = ref(null)
+const copiedKey = ref(null)         // 当前已复制的Key（用于显示复制成功图标）
 
+// ========== 数据加载 ==========
 onMounted(loadData)
 
+/** 并行加载用户、API Key、模型数据 */
 async function loadData() {
   loading.value = true
   const [userRes, apiKeyRes, modelRes] = await Promise.all([
@@ -40,10 +50,14 @@ async function loadData() {
   ])
   if (userRes.code === 200) users.value = userRes.data || []
   if (apiKeyRes.code === 200) apiKeys.value = apiKeyRes.data || []
+  // 仅加载启用状态的模型供绑定选择
   if (modelRes.code === 200) models.value = (modelRes.data || []).filter(m => m.status === 0)
   loading.value = false
 }
 
+// ========== CRUD 操作 ==========
+
+/** 创建 API Key，通过URLSearchParams拼接参数 */
 async function createApiKey() {
   if (!newApiKey.value.userId) {
     alert('请选择用户')
@@ -72,6 +86,7 @@ async function createApiKey() {
   }
 }
 
+/** 打开编辑弹窗，填充当前Key信息 */
 function openEditModal(key) {
   editingKey.value = key
   editForm.value = {
@@ -82,6 +97,7 @@ function openEditModal(key) {
   showEditModal.value = true
 }
 
+/** 更新 API Key 信息 */
 async function updateApiKey() {
   if (!editingKey.value) return
 
@@ -102,6 +118,7 @@ async function updateApiKey() {
   }
 }
 
+/** 删除 API Key（二次确认） */
 async function deleteApiKey(id) {
   if (!confirm('确定删除该 API Key？')) return
   const res = await api.del(`/api-keys/${id}`)
@@ -112,6 +129,9 @@ async function deleteApiKey(id) {
   }
 }
 
+// ========== 辅助函数 ==========
+
+/** 复制Key到剪贴板，2秒后恢复图标 */
 function copyKey(key) {
   navigator.clipboard.writeText(key)
   copiedKey.value = key
@@ -120,14 +140,17 @@ function copyKey(key) {
   }, 2000)
 }
 
+/** 重置创建表单 */
 function resetForm() {
   newApiKey.value = { userId: '', name: '', unitPrice: 0, modelIds: [] }
 }
 
+/** 根据用户ID获取用户名 */
 function getUserName(id) {
   return users.value.find(u => u.id === id)?.username || id
 }
 
+/** 根据模型ID列表获取模型名称，空列表返回"全部模型" */
 function getModelNames(modelIds) {
   if (!modelIds || modelIds.length === 0) return '全部模型'
   return modelIds.map(id => {
@@ -136,6 +159,9 @@ function getModelNames(modelIds) {
   }).join('、')
 }
 
+// ========== 搜索与分页 ==========
+
+/** 按名称或用户名过滤 */
 const filteredApiKeys = computed(() => {
   if (!searchQuery.value) return apiKeys.value
   const q = searchQuery.value.toLowerCase()
@@ -145,10 +171,10 @@ const filteredApiKeys = computed(() => {
   )
 })
 
-// 分页
 const currentPage = ref(1)
 const pageSize = ref(10)
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredApiKeys.value.length / pageSize.value)))
+/** 当前页的API Key列表 */
 const pagedApiKeys = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   return filteredApiKeys.value.slice(start, start + pageSize.value)
@@ -160,6 +186,7 @@ function goToPage(page) {
 
 <template>
   <div class="space-y-6 animate-fade-in">
+    <!-- 页面标题与操作按钮 -->
     <div class="flex items-center justify-between">
       <div>
         <h1 class="text-2xl font-bold text-white">API Keys</h1>
@@ -170,6 +197,7 @@ function goToPage(page) {
       </button>
     </div>
 
+    <!-- 搜索栏 -->
     <div class="flex gap-4">
       <div class="flex-1 relative">
         <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
@@ -177,6 +205,7 @@ function goToPage(page) {
       </div>
     </div>
 
+    <!-- API Key 列表表格 -->
     <div v-if="loading" class="text-slate-500">加载中...</div>
     <div v-else-if="apiKeys.length === 0" class="text-slate-500">暂无 API Key</div>
     <div v-else class="glass-card overflow-hidden">
@@ -250,6 +279,7 @@ function goToPage(page) {
       </div>
     </div>
 
+    <!-- 创建 API Key 弹窗 -->
     <div v-if="showAddModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div class="glass-card w-full max-w-lg p-6 animate-slide-up">
         <div class="flex items-center justify-between mb-4">

@@ -1,16 +1,24 @@
+<!--
+  计费管理页面（管理员）
+  功能：展示收入/消耗统计、账单流水列表，支持类型筛选和分页
+-->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useApiStore } from '@/stores/api'
 import { Receipt, TrendingUp, ArrowDownUp, Wallet, Zap, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 const api = useApiStore()
-const loading = ref(false)
-const billingRecords = ref([])
-const users = ref([])
-const typeFilter = ref('all') // 'all' | 'RECHARGE' | 'TOKEN_USAGE'
 
+// ========== 状态变量 ==========
+const loading = ref(false)              // 加载状态
+const billingRecords = ref([])          // 所有账单记录
+const users = ref([])                   // 用户列表（用于显示用户名）
+const typeFilter = ref('all')           // 类型筛选：'all' | 'RECHARGE' | 'TOKEN_USAGE'
+
+// ========== 数据加载 ==========
 onMounted(loadData)
 
+/** 并行加载账单记录和用户列表 */
 async function loadData() {
   loading.value = true
   const [billRes, usersRes] = await Promise.all([
@@ -22,20 +30,34 @@ async function loadData() {
   loading.value = false
 }
 
+// ========== 辅助函数 ==========
+
+/** 根据用户ID获取用户名 */
 function getUserName(userId) {
   const user = users.value.find(u => u.id === userId)
   return user ? (user.name || user.username) : `用户${userId}`
 }
 
+/** 格式化时间为 YYYY-MM-DD HH:mm:ss */
+function formatTime(createdAt) {
+  if (!createdAt) return '-'
+  const d = new Date(createdAt)
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+// ========== 筛选与分页 ==========
+
+/** 按类型筛选后的记录 */
 const filteredRecords = computed(() => {
   if (typeFilter.value === 'all') return billingRecords.value
   return billingRecords.value.filter(r => r.type === typeFilter.value)
 })
 
-// 分页
 const currentPage = ref(1)
 const pageSize = ref(15)
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredRecords.value.length / pageSize.value)))
+/** 当前页的记录列表 */
 const pagedRecords = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   return filteredRecords.value.slice(start, start + pageSize.value)
@@ -44,6 +66,9 @@ function goToPage(page) {
   if (page >= 1 && page <= totalPages.value) currentPage.value = page
 }
 
+// ========== 统计数据 ==========
+
+/** 计算今日收入、本月收入、总充值、总消耗 */
 const stats = computed(() => {
   const now = new Date()
   const today = now.toDateString()
@@ -66,17 +91,11 @@ const stats = computed(() => {
   }
   return { todayIncome, monthIncome, totalRecharge, totalUsage }
 })
-
-function formatTime(createdAt) {
-  if (!createdAt) return '-'
-  const d = new Date(createdAt)
-  const pad = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
 </script>
 
 <template>
   <div class="space-y-6 animate-fade-in">
+    <!-- 页面标题 -->
     <div class="flex items-center justify-between">
       <div>
         <h1 class="text-2xl font-bold text-white">计费管理</h1>
@@ -84,7 +103,7 @@ function formatTime(createdAt) {
       </div>
     </div>
 
-    <!-- Stats -->
+    <!-- 统计卡片：今日收入、本月收入、总充值、总消耗 -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
       <div class="glass-card p-6">
         <div class="flex items-start justify-between">
@@ -132,10 +151,11 @@ function formatTime(createdAt) {
       </div>
     </div>
 
-    <!-- Records -->
+    <!-- 账单流水表格 -->
     <div class="glass-card p-6">
       <div class="flex items-center justify-between mb-6">
         <h3 class="text-lg font-semibold text-white">账单流水</h3>
+        <!-- 类型筛选 -->
         <div class="flex items-center gap-2">
           <ArrowDownUp class="w-4 h-4 text-slate-400" />
           <select v-model="typeFilter" class="input-field w-auto text-sm py-1.5">
@@ -146,13 +166,13 @@ function formatTime(createdAt) {
         </div>
       </div>
 
-      <!-- Loading -->
+      <!-- 加载中 -->
       <div v-if="loading" class="flex items-center justify-center py-16">
         <div class="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
         <span class="ml-3 text-slate-400">加载中...</span>
       </div>
 
-      <!-- Table -->
+      <!-- 账单表格 -->
       <div v-else class="overflow-x-auto">
         <table class="w-full">
           <thead>
