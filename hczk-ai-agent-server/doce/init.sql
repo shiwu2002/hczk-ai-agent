@@ -324,48 +324,6 @@ CREATE TABLE message (
     created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
 
     KEY idx_session_id (session_id),
-    KEY idx_created_at (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='消息记录表';
-
--- ------------------------------
--- 表13：技能包调用计量表 skill_usage
--- ------------------------------
-DROP TABLE IF EXISTS skill_usage;
-CREATE TABLE skill_usage (
-    id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
-    PRIMARY KEY,
-    skill_id            VARCHAR(64)         COMMENT '技能包ID',
-    merchant_id         VARCHAR(64)    NOT NULL COMMENT '商家ID',
-    user_id             VARCHAR(64)         COMMENT '用户ID',
-    session_id          VARCHAR(64)         COMMENT '会话ID',
-    call_type           VARCHAR(20)    NOT NULL COMMENT '调用类型：chat / stream / tool / knowledge',
-    input_tokens        BIGINT         NOT NULL DEFAULT 0 COMMENT '输入Token数',
-    output_tokens       BIGINT         NOT NULL DEFAULT 0 COMMENT '输出Token数',
-    tool_calls_count    INT            NOT NULL DEFAULT 0 COMMENT '工具调用次数',
-    retrieval_count     INT            NOT NULL DEFAULT 0 COMMENT '知识检索次数',
-    billing_type        VARCHAR(32)         COMMENT '计费类型',
-    cost                DECIMAL(10,4)  NOT NULL DEFAULT 0 COMMENT '费用',
-    duration_ms         INT                 COMMENT '耗时(毫秒)',
-    status              VARCHAR(20)    NOT NULL COMMENT '状态：success / error / timeout',
-    error_message       TEXT                COMMENT '错误信息',
-    called_at           DATETIME       NOT NULL COMMENT '调用时间',
-    created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-
-    KEY idx_skill_id (skill_id),
-    KEY idx_merchant_id (merchant_id),
-    KEY idx_called_at (called_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='技能包调用计量表';
-
--- ------------------------------
--- 表14：限流规则表 skill_rate_limit
--- ------------------------------
-DROP TABLE IF EXISTS skill_rate_limit;
-CREATE TABLE skill_rate_limit (
-    id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
-    PRIMARY KEY,
-    skill_id            VARCHAR(64)    NOT NULL COMMENT '技能包ID',
-    limit_type          VARCHAR(20)    NOT NULL COMMENT '限流类型：rpm / tpm / concurrent',
-    limit_value         INT            NOT NULL COMMENT '限流值',
     time_window_sec     INT            NOT NULL DEFAULT 60 COMMENT '时间窗口(秒)',
 
     KEY idx_skill_id (skill_id)
@@ -426,54 +384,6 @@ CREATE TABLE merchant_transaction (
     KEY idx_merchant_id (merchant_id),
     KEY idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家交易流水表';
-
--- ------------------------------
--- 表18：技能包计费规则表 skill_pricing
--- ------------------------------
-DROP TABLE IF EXISTS skill_pricing;
-CREATE TABLE skill_pricing (
-    id                      BIGINT AUTO_INCREMENT COMMENT '主键ID'
-    PRIMARY KEY,
-    skill_id                VARCHAR(64)    NOT NULL COMMENT '技能包ID',
-    billing_type            VARCHAR(20)    NOT NULL COMMENT '计费类型：per_call / per_token / per_session / monthly',
-    price_per_call          DECIMAL(10,4)       COMMENT '每次调用价格',
-    price_per_input_token   DECIMAL(10,6)       COMMENT '输入Token价格',
-    price_per_output_token  DECIMAL(10,6)       COMMENT '输出Token价格',
-    price_per_session       DECIMAL(10,4)       COMMENT '每会话价格',
-    monthly_price           DECIMAL(10,2)       COMMENT '月套餐价格',
-    monthly_included_calls  INT                 COMMENT '月套餐包含调用次数',
-    free_calls_per_month    INT            NOT NULL DEFAULT 0 COMMENT '每月免费调用次数',
-    effective_from          DATETIME       NOT NULL COMMENT '生效时间',
-    effective_to            DATETIME             COMMENT '失效时间',
-    created_at              DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-
-    KEY idx_skill_id (skill_id),
-    KEY idx_effective_from (effective_from)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='技能包计费规则表';
-
--- ------------------------------
--- 表19：知识库归属表 knowledge_bases
--- 记录知识库与智能体/用户的归属关系
--- ------------------------------
-DROP TABLE IF EXISTS knowledge_bases;
-CREATE TABLE knowledge_bases (
-    id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
-    PRIMARY KEY,
-    name                VARCHAR(128)   NOT NULL COMMENT '知识库名称(Milvus collection名)',
-    description         VARCHAR(500)        COMMENT '知识库描述',
-    owner_type          VARCHAR(20)    NOT NULL DEFAULT 'AGENT' COMMENT '归属类型：AGENT智能体 / USER用户',
-    owner_id            BIGINT         NOT NULL COMMENT '归属对象ID(agents.id或users.id)',
-    agent_id            VARCHAR(64)    NOT NULL COMMENT 'Milvus集合命名用的agentId字符串',
-    collection_name     VARCHAR(128)   NOT NULL DEFAULT 'default' COMMENT 'Milvus子集合名',
-    row_count           BIGINT         NOT NULL DEFAULT 0 COMMENT '文档条数缓存',
-    status              TINYINT        NOT NULL DEFAULT 0 COMMENT '状态：0正常 / 1禁用',
-    created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    updated_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-
-    UNIQUE KEY uk_owner_collection (owner_type, owner_id, collection_name),
-    KEY idx_owner_type (owner_type),
-    KEY idx_agent_id (agent_id),
-    KEY idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库归属关系表';
 
 -- ============================================================

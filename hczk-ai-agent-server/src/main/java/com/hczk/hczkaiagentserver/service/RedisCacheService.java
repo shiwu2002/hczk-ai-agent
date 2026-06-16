@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -19,6 +20,7 @@ import java.util.concurrent.TimeUnit;
  * - 用户余额缓存（5分钟过期）
  * - 用户信息缓存（24小时过期）
  * - API Key缓存（24小时过期）
+ * - 工具定义缓存（20-30分钟随机过期，防缓存雪崩）
  * 
  * 采用读写策略：读优先走缓存，写后失效缓存
  * Redis不可用时自动降级到数据库查询，不影响业务
@@ -28,23 +30,20 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class RedisCacheService {
 
-    /** Redis操作模板 */
     private final RedisTemplate<String, Object> redisTemplate;
-    /** 用户数据访问 */
     private final UserMapper userMapper;
-    /** API Key数据访问 */
     private final ApiKeyMapper apiKeyMapper;
+    private final Random random = new Random();
 
-    /** 用户余额缓存前缀 */
     private static final String USER_BALANCE_PREFIX = "user:balance:";
-    /** 用户信息缓存前缀 */
     private static final String USER_PREFIX = "user:";
-    /** API Key缓存前缀 */
     private static final String API_KEY_PREFIX = "apikey:";
-    /** 通用缓存过期时间（小时） */
+    private static final String TOOLS_PREFIX = "tools:";
     private static final long CACHE_EXPIRE_HOURS = 24;
-    /** 余额缓存过期时间（分钟）- 高频修改数据使用较短过期时间 */
     private static final long BALANCE_CACHE_EXPIRE_MINUTES = 5;
+    /** 工具定义缓存过期时间范围（分钟） */
+    private static final int TOOLS_CACHE_MIN_MINUTES = 20;
+    private static final int TOOLS_CACHE_MAX_MINUTES = 30;
 
     /**
      * 获取用户余额（优先从缓存）
@@ -231,4 +230,57 @@ public class RedisCacheService {
             log.warn("Redis 删除 API Key 缓存失败: keyId={}, error={}", apiKeyId, e.getMessage());
         }
     }
+
+    // ========== 工具定义缓存 ==========
+
+    /** 通用：获取缓存的 JSON 字符串 */
+    public String getCachedJson(String cacheKey) {
+        try {
+            Object cached = redisTemplate.opsForValue().get(cacheKey);
+            return cached != null ? cached.toString() : null;
+        } catch (Exception e) {
+            log.warn("Redis 获取缓存失败: key={}, error={}", cacheKey, e.getMessage());
+            return null;
+        }
+    }
+
+    /** 通用：缓存 JSON 字符串（20-30分钟随机过期，防缓存雪崩） */
+    public void cacheJsonWithRandomTTL(String cacheKey, String json) {
+        try {
+            int ttl = TOOLS_CACHE_MIN_MINUTES + random.nextInt(TOOLS_CACHE_MAX_MINUTES - TOOLS_CACHE_MIN_MINUTES + 1);
+            redisTemplate.opsForValue().set(cacheKey, json, ttl, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            log.warn("Redis 设置缓存失败: key={}, error={}", cacheKey, e.getMessage());
+        }
+    }
+
+    /** 通用：失效指定前缀的所有缓存 */
+    public void invalidateByPrefix(String prefix) {
+        try {
+            var keys = redisTemplate.keys(prefix + "*");
+            if (keys != null && !keys.isEmpty()) {
+                redisTemplate.delete(keys);
+            }
+        } catch (Exception e) {
+            log.warn("Redis 清除缓存失败: prefix={}, error={}", prefix, e.getMessage());
+        }
+    }
+
+    /** 删除单个缓存 key */
+    public void deleteKey(String key) {
+        try {
+            redisTemplate.delete(key);
+        } catch (Exception e) {
+            log.warn("Redis 删除缓存key失败: key={}, error={}", key, e.getMessage());
+        }
+    }
+
+    /** 构建工具缓存 key */
+    public static String toolsKey(String suffix) { return TOOLS_PREFIX + suffix; }
+
+    // ========== 待添加缓存前缀 ==========
+    private static final String BINDINGS_PREFIX = "bindings:";
+    private static final String SKILLS_ALL_KEY = "skills:all";
+    private static final String AGENTS_ALL_KEY = "agents:all";
+    private static final String KB_BASES_KEY = "kb:bases:all";
 }
