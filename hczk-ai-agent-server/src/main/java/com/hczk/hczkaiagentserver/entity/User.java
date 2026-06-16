@@ -10,12 +10,8 @@ import java.time.LocalDateTime;
 @TableName("users")
 @Data
 public class User {
-    /** 主键ID */
-    @TableId(type = IdType.AUTO)
-    private Long id;
-
-    /** 用户唯一标识（注册时随机生成，如 U1A2B3C4D5E6F7G8） */
-    @TableField("user_id")
+    /** 用户唯一标识（雪花ID，主键） */
+    @TableId(type = IdType.ASSIGN_ID)
     private String userId;
 
     /** 用户名 */

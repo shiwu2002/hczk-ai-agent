@@ -23,7 +23,7 @@ public class AgentController {
     }
 
     @GetMapping("/user/{userId}")
-    public Result<List<Agent>> getAgentsByUserId(@PathVariable Long userId) {
+    public Result<List<Agent>> getAgentsByUserId(@PathVariable String userId) {
         return Result.success(agentService.getAgentsByUserId(userId));
     }
 

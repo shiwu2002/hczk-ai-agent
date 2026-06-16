@@ -78,7 +78,7 @@ async function loadUsers() {
 const userMap = computed(() => {
   const map = {}
   for (const u of users.value) {
-    map[u.id] = u.username || u.email || ('用户' + u.id)
+    map[u.userId] = u.username || u.email || ('用户' + u.userId)
   }
   return map
 })

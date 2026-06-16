@@ -12,10 +12,10 @@ public class MerchantAgentBinding {
     private Long id;
 
     /**
-     * 绑定的用户 ID（雪花ID，关联 users 表）
+     * 绑定的用户 ID（雪花ID，关联 users.user_id）
      */
     @TableField("user_id")
-    private Long userId;
+    private String userId;
 
     /**
      * 绑定的平台注册智能体 ID（优先级最高）

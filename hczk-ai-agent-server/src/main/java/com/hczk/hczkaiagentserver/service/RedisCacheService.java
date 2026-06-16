@@ -46,11 +46,11 @@ public class RedisCacheService {
 
     /**
      * 获取用户余额（优先从缓存）
-     * 
-     * @param userId 用户ID
+     *
+     * @param userId 用户ID（雪花ID）
      * @return 用户余额，用户不存在返回BigDecimal.ZERO
      */
-    public BigDecimal getUserBalance(Long userId) {
+    public BigDecimal getUserBalance(String userId) {
         String key = USER_BALANCE_PREFIX + userId;
         try {
             // 优先从Redis缓存读取
@@ -74,11 +74,11 @@ public class RedisCacheService {
 
     /**
      * 缓存用户余额
-     * 
-     * @param userId  用户ID
+     *
+     * @param userId  用户ID（雪花ID）
      * @param balance 余额
      */
-    public void cacheUserBalance(Long userId, BigDecimal balance) {
+    public void cacheUserBalance(String userId, BigDecimal balance) {
         try {
             String key = USER_BALANCE_PREFIX + userId;
             redisTemplate.opsForValue().set(key, balance.toString(), BALANCE_CACHE_EXPIRE_MINUTES, TimeUnit.MINUTES);
@@ -89,10 +89,10 @@ public class RedisCacheService {
 
     /**
      * 失效用户余额缓存
-     * 
-     * @param userId 用户ID
+     *
+     * @param userId 用户ID（雪花ID）
      */
-    public void invalidateUserBalance(Long userId) {
+    public void invalidateUserBalance(String userId) {
         try {
             String key = USER_BALANCE_PREFIX + userId;
             redisTemplate.delete(key);

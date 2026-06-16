@@ -29,7 +29,7 @@ public class BillingController {
     private final UserMapper userMapper;
 
     @GetMapping("/records/{userId}")
-    public Result<List<BillingRecord>> getUserBillingRecords(@PathVariable Long userId) {
+    public Result<List<BillingRecord>> getUserBillingRecords(@PathVariable String userId) {
         return Result.success(billingService.getUserBillingRecords(userId));
     }
 
@@ -42,14 +42,14 @@ public class BillingController {
      * 管理员给用户充值
      */
     @PostMapping("/recharge")
-    public Result<RechargeRecord> recharge(@RequestParam Long userId,
+    public Result<RechargeRecord> recharge(@RequestParam String userId,
                                            @RequestParam BigDecimal amount,
                                            @RequestParam String paymentMethod) {
         return Result.success(billingService.recharge(userId, amount, paymentMethod));
     }
 
     @GetMapping("/balance/{userId}")
-    public Result<BigDecimal> getUserBalance(@PathVariable Long userId) {
+    public Result<BigDecimal> getUserBalance(@PathVariable String userId) {
         return Result.success(billingService.getUserBalance(userId));
     }
 
@@ -59,7 +59,7 @@ public class BillingController {
     @PostMapping("/self-recharge")
     public Result<RechargeRecord> selfRecharge(@RequestParam BigDecimal amount,
                                                @RequestParam String paymentMethod) {
-        Long userId = resolveCurrentUserId();
+        String userId = resolveCurrentUserId();
         if (userId == null) {
             return Result.error(401, "未登录");
         }
@@ -71,7 +71,7 @@ public class BillingController {
      */
     @GetMapping("/my-records")
     public Result<List<BillingRecord>> myRecords() {
-        Long userId = resolveCurrentUserId();
+        String userId = resolveCurrentUserId();
         if (userId == null) {
             return Result.error(401, "未登录");
         }
@@ -83,7 +83,7 @@ public class BillingController {
      */
     @GetMapping("/my-usage")
     public Result<List<BillingRecord>> myUsage() {
-        Long userId = resolveCurrentUserId();
+        String userId = resolveCurrentUserId();
         if (userId == null) {
             return Result.error(401, "未登录");
         }
@@ -100,7 +100,7 @@ public class BillingController {
      */
     @GetMapping("/my-recharges")
     public Result<List<BillingRecord>> myRecharges() {
-        Long userId = resolveCurrentUserId();
+        String userId = resolveCurrentUserId();
         if (userId == null) {
             return Result.error(401, "未登录");
         }
@@ -115,7 +115,7 @@ public class BillingController {
     /**
      * 从 Security 上下文解析当前用户 ID
      */
-    private Long resolveCurrentUserId() {
+    private String resolveCurrentUserId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null) return null;
 
@@ -123,7 +123,7 @@ public class BillingController {
         if (auth.getDetails() instanceof Map) {
             Map<?, ?> details = (Map<?, ?>) auth.getDetails();
             Object userId = details.get("userId");
-            if (userId instanceof Long) return (Long) userId;
+            if (userId instanceof String) return (String) userId;
         }
 
         // JWT 认证 - principal 是 username
@@ -132,7 +132,7 @@ public class BillingController {
             String username = (String) principal;
             User user = userMapper.selectOne(
                     new LambdaQueryWrapper<User>().eq(User::getUsername, username));
-            return user != null ? user.getId() : null;
+            return user != null ? user.getUserId() : null;
         }
         return null;
     }

@@ -14,7 +14,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * 用户服务实现类
@@ -83,7 +82,6 @@ public class UserServiceImpl implements UserService {
         }
 
         User user = new User();
-        user.setUserId("U" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase());
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setEmail(request.getEmail());
@@ -92,6 +90,7 @@ public class UserServiceImpl implements UserService {
         if (user.getStatus() == null) {
             user.setStatus(0);
         }
+        // userId 由 MyBatis-Plus 雪花算法自动赋值（@TableId(type = IdType.ASSIGN_ID)）
         userMapper.insert(user);
         return user;
     }
@@ -127,15 +126,15 @@ public class UserServiceImpl implements UserService {
      * 更新用户信息
      * 仅更新非空字段（手机号、公司名称）
      *
-     * @param id      用户ID
+     * @param userId  用户ID（雪花ID）
      * @param userDTO 用户更新数据
      * @return 更新后的用户信息
      * @throws RuntimeException 用户不存在时抛出
      */
     @Override
     @Transactional
-    public User updateUser(Long id, UserDTO userDTO) {
-        User user = userMapper.selectById(id);
+    public User updateUser(String userId, UserDTO userDTO) {
+        User user = userMapper.selectById(userId);
         if (user == null) {
             throw new RuntimeException("用户不存在");
         }
@@ -157,7 +156,6 @@ public class UserServiceImpl implements UserService {
      */
     private UserDTO convertToDTO(User user) {
         UserDTO dto = new UserDTO();
-        dto.setId(user.getId());
         dto.setUserId(user.getUserId());
         dto.setUsername(user.getUsername());
         dto.setEmail(user.getEmail());

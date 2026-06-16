@@ -77,10 +77,10 @@ public class Agent {
     private String version;
 
     /**
-     * 归属用户 ID（管理员创建）
+     * 归属用户 ID（雪花ID，管理员创建）
      */
     @TableField("user_id")
-    private Long userId;
+    private String userId;
 
     private AgentStatus status = AgentStatus.ACTIVE;
 

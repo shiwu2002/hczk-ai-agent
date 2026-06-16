@@ -63,8 +63,8 @@ async function openDetail(user) {
   showDetailModal.value = true
 
   const [usageRes, keysRes] = await Promise.all([
-    api.get(`/users/${user.id}/usage`),
-    api.get(`/users/${user.id}/api-keys`)
+    api.get(`/users/${user.userId}/usage`),
+    api.get(`/users/${user.userId}/api-keys`)
   ])
   if (usageRes.code === 200) detailUsage.value = usageRes.data || []
   if (keysRes.code === 200) detailApiKeys.value = keysRes.data || []
@@ -91,7 +91,7 @@ const usageSummary = computed(() => {
 
 /** 打开充值弹窗 */
 function openRecharge(user) {
-  rechargeForm.value = { userId: user.id, userName: user.name || user.username, amount: null, paymentMethod: 'admin', remark: '' }
+  rechargeForm.value = { userId: user.userId, userName: user.name || user.username, amount: null, paymentMethod: 'admin', remark: '' }
   showRechargeModal.value = true
 }
 
@@ -158,7 +158,7 @@ async function doRecharge() {
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5">
-            <tr v-for="user in pagedUsers" :key="user.id" class="hover:bg-white/5 transition-colors">
+            <tr v-for="user in pagedUsers" :key="user.userId" class="hover:bg-white/5 transition-colors">
               <td class="py-4">
                 <div class="flex items-center gap-3">
                   <div class="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white text-sm font-bold">

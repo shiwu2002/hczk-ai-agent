@@ -21,12 +21,12 @@ USE hczk_ai_platform;
 -- ------------------------------
 -- 表1：用户表 users
 -- 存储平台登录用户、余额、角色、用量信息
+-- 主键 user_id 使用雪花算法生成（String 类型，由 MyBatis-Plus @TableId(type=ASSIGN_ID) 赋值）
 -- ------------------------------
 DROP TABLE IF EXISTS users;
 CREATE TABLE users (
-    id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
+    user_id             VARCHAR(32)    NOT NULL COMMENT '用户唯一标识（雪花算法生成，主键）'
     PRIMARY KEY,
-    user_id             VARCHAR(32)    NOT NULL UNIQUE COMMENT '用户唯一标识（随机生成）',
     username            VARCHAR(50)    NOT NULL COMMENT '登录用户名',
     password            VARCHAR(255)   NOT NULL COMMENT 'BCrypt加密密码',
     email               VARCHAR(100)   NOT NULL COMMENT '绑定邮箱',
@@ -41,7 +41,6 @@ CREATE TABLE users (
     updated_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
     -- 唯一索引
-    UNIQUE KEY uk_user_id (user_id),
     UNIQUE KEY uk_username (username),
     UNIQUE KEY uk_email (email),
     -- 业务查询索引
@@ -118,7 +117,7 @@ CREATE TABLE api_keys (
     PRIMARY KEY,
     name                VARCHAR(100)   NOT NULL COMMENT '密钥备注名称',
     api_key             VARCHAR(512)   NOT NULL COMMENT '随机生成密钥串',
-    user_id             BIGINT         NOT NULL COMMENT '归属用户ID(users.id)',
+    user_id             VARCHAR(32)    NOT NULL COMMENT '归属用户ID(users.user_id)',
     model_ids           JSON                COMMENT '绑定的大模型ID列表',
     unit_price          DECIMAL(19,6)  NOT NULL DEFAULT 0.000000 COMMENT '统一Token单价（元/千Tokens）',
     total_calls         BIGINT         NOT NULL DEFAULT 0 COMMENT '累计调用次数',
@@ -130,9 +129,9 @@ CREATE TABLE api_keys (
     created_at          DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
 
     UNIQUE KEY uk_api_key (api_key),
-    UNIQUE KEY uk_user_id (user_id),
+    KEY idx_user_id (user_id),
     KEY idx_status (status),
-    CONSTRAINT fk_apikey_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_apikey_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户对外开放API密钥表';
 
 -- ------------------------------
@@ -193,7 +192,7 @@ DROP TABLE IF EXISTS recharge_records;
 CREATE TABLE recharge_records (
     id                  BIGINT AUTO_INCREMENT COMMENT '主键ID'
     PRIMARY KEY,
-    user_id             BIGINT         NOT NULL COMMENT '充值用户ID(users.id)',
+    user_id             VARCHAR(32)    NOT NULL COMMENT '充值用户ID(users.user_id)',
     amount              DECIMAL(19,4)  NOT NULL COMMENT '实际支付金额',
     bonus_amount        DECIMAL(19,4)  NOT NULL DEFAULT 0.0000 COMMENT '平台赠送余额',
     payment_method      VARCHAR(50)         COMMENT '支付渠道：alipay支付宝 / wechat微信',
@@ -205,7 +204,7 @@ CREATE TABLE recharge_records (
     KEY idx_transaction_id (transaction_id),
     KEY idx_status (status),
     KEY idx_created_at (created_at),
-    CONSTRAINT fk_recharge_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_recharge_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户充值订单记录表';
 
 -- ------------------------------
@@ -409,12 +408,12 @@ VALUES
 -- admin用户的API Key：绑定DeepSeek-V3和qwen-max，单价0.002元/千Tokens
 INSERT INTO api_keys (name, api_key, user_id, model_ids, unit_price, total_calls, total_input_tokens, total_output_tokens, total_cost, status)
 VALUES
-('管理员-通用Key', 'sk-hczk-admin-x1y2z3a4b5c6d7e8f9g0h1i2j3k4l5m6', 1, '[1, 3]', 0.002000, 128, 32000, 26000, 0.116000, 0);
+('管理员-通用Key', 'sk-hczk-admin-x1y2z3a4b5c6d7e8f9g0h1i2j3k4l5m6', 'U1A2B3C4D5E6F7G8', '[1, 3]', 0.002000, 128, 32000, 26000, 0.116000, 0);
 
 -- user用户的API Key：绑定DeepSeek-V3、ERNIE-4.0-Turbo、qwen-max，单价0.005元/千Tokens
 INSERT INTO api_keys (name, api_key, user_id, model_ids, unit_price, total_calls, total_input_tokens, total_output_tokens, total_cost, status)
 VALUES
-('测试用户-通用Key', 'sk-hczk-user-m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6', 2, '[1, 2, 3]', 0.005000, 42, 8400, 6720, 0.075600, 0);
+('测试用户-通用Key', 'sk-hczk-user-m1n2o3p4q5r6s7t8u9v0w1x2y3z4a5b6', 'U9H8G7F6E5D4C3B2', '[1, 2, 3]', 0.005000, 42, 8400, 6720, 0.075600, 0);
 
 -- 4. 预置第三方渠道配置（默认关闭，需手动开启+填写密钥）
 INSERT INTO platform_configs (platform_type, webhook_url, auto_reply, enabled)

@@ -5,8 +5,6 @@ import com.hczk.hczkaiagentserver.entity.Agent;
 import com.hczk.hczkaiagentserver.entity.ApiKey;
 import com.hczk.hczkaiagentserver.entity.MerchantAgentBinding;
 import com.hczk.hczkaiagentserver.entity.Skill;
-import com.hczk.hczkaiagentserver.entity.User;
-import com.hczk.hczkaiagentserver.mapper.UserMapper;
 import com.hczk.hczkaiagentserver.service.AgentService;
 import com.hczk.hczkaiagentserver.service.ApiKeyService;
 import com.hczk.hczkaiagentserver.service.ChatService;
@@ -54,20 +52,11 @@ public class ChatController {
     private final MerchantAgentBindingService bindingService;
     private final SkillService skillService;
     private final JwtUtil jwtUtil;
-    private final UserMapper userMapper;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
     @Value("${app.platform-url:http://localhost:8080}")
     private String platformBaseUrl;
-
-    /**
-     * 根据用户自增ID获取雪花ID字符串（用于知识库集合名和JWT）
-     */
-    private String getSnowflakeUserId(Long userId) {
-        User user = userMapper.selectById(userId);
-        return user != null ? user.getUserId() : String.valueOf(userId);
-    }
 
     /**
      * 内部聊天接口（管理后台/前端使用）
@@ -266,7 +255,7 @@ public class ChatController {
 
         try {
             ApiKey key = apiKeyService.getActiveApiKey(apiKey);
-            Long userId = key.getUserId();
+            String userId = key.getUserId();
 
             var bindingOpt = bindingService.findByUserId(userId);
             if (bindingOpt.isEmpty()) {
@@ -330,7 +319,7 @@ public class ChatController {
             HttpHeaders headers = new HttpHeaders();
             // 使用JWT鉴权
             String agentToken = jwtUtil.generateAgentToken(
-                    String.valueOf(key.getUserId()), key.getApiKey());
+                    key.getUserId(), key.getApiKey());
             headers.set("Authorization", "Bearer " + agentToken);
 
             @SuppressWarnings("unchecked")
@@ -374,7 +363,7 @@ public class ChatController {
             HttpHeaders headers = new HttpHeaders();
             // 使用JWT鉴权
             String agentToken = jwtUtil.generateAgentToken(
-                    String.valueOf(key.getUserId()), key.getApiKey());
+                    key.getUserId(), key.getApiKey());
             headers.set("Authorization", "Bearer " + agentToken);
 
             @SuppressWarnings("unchecked")
@@ -408,7 +397,7 @@ public class ChatController {
 
         try {
             ApiKey key = apiKeyService.getActiveApiKey(apiKey);
-            Long userId = key.getUserId();
+            String userId = key.getUserId();
 
             var bindingOpt = bindingService.findByUserId(userId);
             if (bindingOpt.isEmpty()) {
@@ -434,7 +423,7 @@ public class ChatController {
         }
     }
 
-    private ResponseEntity<?> forwardToAgent(Long agentId, Long userId, String message, String sessionId, Map<String, Object> originalRequest, MerchantAgentBinding binding, String apiKey) {
+    private ResponseEntity<?> forwardToAgent(Long agentId, String userId, String message, String sessionId, Map<String, Object> originalRequest, MerchantAgentBinding binding, String apiKey) {
         Agent agent = agentService.getAgentById(agentId);
         if (agent == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "智能体不存在"));
@@ -450,11 +439,11 @@ public class ChatController {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             // 使用JWT鉴权：将雪花userId和apiKey封装到JWT中
-            String agentToken = jwtUtil.generateAgentToken(getSnowflakeUserId(userId), apiKey);
+            String agentToken = jwtUtil.generateAgentToken(userId, apiKey);
             headers.set("Authorization", "Bearer " + agentToken);
 
             Map<String, Object> body = new java.util.HashMap<>();
-            body.put("user_id", getSnowflakeUserId(userId));
+            body.put("user_id", userId);
             body.put("message", message);
             body.put("session_id", sessionId);
             // 传递平台注册的 MCP 工具列表，供智能体做 function calling
@@ -486,7 +475,7 @@ public class ChatController {
     /**
      * 代理转发 SSE 流式对话
      */
-    private SseEmitter proxySse(Agent agent, Long userId, Map<String, Object> originalRequest, MerchantAgentBinding binding, String apiKey) {
+    private SseEmitter proxySse(Agent agent, String userId, Map<String, Object> originalRequest, MerchantAgentBinding binding, String apiKey) {
         SseEmitter emitter = new SseEmitter(60000L);
 
         sseExecutor.execute(() -> {
@@ -498,14 +487,14 @@ public class ChatController {
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setRequestProperty("Accept", "text/event-stream");
                 // 使用JWT鉴权：将雪花userId和apiKey封装到JWT中
-                String agentToken = jwtUtil.generateAgentToken(getSnowflakeUserId(userId), apiKey);
+                String agentToken = jwtUtil.generateAgentToken(userId, apiKey);
                 conn.setRequestProperty("Authorization", "Bearer " + agentToken);
                 conn.setConnectTimeout(5000);
                 conn.setReadTimeout(60000);
 
                 // 构建请求体
                 Map<String, Object> body = new java.util.HashMap<>();
-                body.put("user_id", getSnowflakeUserId(userId));
+                body.put("user_id", userId);
                 // 传递平台注册的 MCP 工具列表
                 body.put("available_skills", getAvailableSkills());
                 body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
@@ -513,7 +502,7 @@ public class ChatController {
                     body.putAll(originalRequest);
                 }
                 if (!body.containsKey("user_id")) {
-                    body.put("user_id", getSnowflakeUserId(userId));
+                    body.put("user_id", userId);
                 }
 
                 String jsonBody = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body);
@@ -545,7 +534,7 @@ public class ChatController {
     /**
      * 降级：同步调用包装为 SSE 格式返回
      */
-    private SseEmitter fallbackSse(Agent agent, Long userId, Map<String, Object> originalRequest, MerchantAgentBinding binding, String apiKey) {
+    private SseEmitter fallbackSse(Agent agent, String userId, Map<String, Object> originalRequest, MerchantAgentBinding binding, String apiKey) {
         SseEmitter emitter = new SseEmitter(30000L);
 
         sseExecutor.execute(() -> {
@@ -582,16 +571,16 @@ public class ChatController {
         return null;
     }
 
-    private ResponseEntity<?> forwardToEndpoint(String endpoint, String authHeader, Long userId, String message, String sessionId, MerchantAgentBinding binding, String apiKey) {
+    private ResponseEntity<?> forwardToEndpoint(String endpoint, String authHeader, String userId, String message, String sessionId, MerchantAgentBinding binding, String apiKey) {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             // 使用JWT鉴权：将雪花userId和apiKey封装到JWT中
-            String agentToken = jwtUtil.generateAgentToken(getSnowflakeUserId(userId), apiKey);
+            String agentToken = jwtUtil.generateAgentToken(userId, apiKey);
             headers.set("Authorization", "Bearer " + agentToken);
 
             Map<String, Object> body = new java.util.HashMap<>();
-            body.put("user_id", getSnowflakeUserId(userId));
+            body.put("user_id", userId);
             body.put("message", message);
             body.put("session_id", sessionId);
             body.put("available_skills", getAvailableSkills());

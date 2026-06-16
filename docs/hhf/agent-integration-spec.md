@@ -1,8 +1,10 @@
 # 桓宸智科 AI 平台 — 智能体接入规范
 
-> 版本：4.0.0
+> 版本：4.1.0
 > 日期：2026-06-17
 > 适用范围：所有需要注册到桓宸智科 AI 平台的容器智能体
+>
+> **v4.1.0 变更**：统一工具执行参数为 `user_id`（雪花ID），文档上传表单字段 `merchant_id` 改为 `user_id`，明确前端用户选择必须绑定 `userId`（雪花ID）而非 `id`（自增主键）。
 
 ---
 
@@ -389,7 +391,7 @@ Authorization: Bearer {jwt_token}
   "arguments": {
     "query": "产品价格",
     "collection_name": "products",
-    "agent_id": "M001"
+    "user_id": "1234567890123456789"
   }
 }
 ```
@@ -398,7 +400,7 @@ Authorization: Bearer {jwt_token}
 |------|------|------|------|
 | `tool_name` | string | 是 | 工具名称（与 function.name 一致） |
 | `arguments` | object | 是 | 工具参数，与 inputSchema 对应 |
-| `arguments.agent_id` | string | 建议 | 多租户标识（可从 JWT 的 merchant_id 映射） |
+| `arguments.user_id` | string | 建议 | 用户雪花ID（直接从 JWT 的 `user_id` claim 获取），用于定位该用户的 Milvus 物理集合 |
 
 **成功响应**
 
@@ -461,6 +463,19 @@ kb_{user_id}_{collection_name}
 - `user_id` 参数直接传 JWT 中的雪花ID（纯数字字符串），无需任何前缀
 - `collection_name` 传逻辑集合名（如 `default`、`products`）
 - 平台自动拼接为 `kb_{user_id}_{collection_name}` 查询 Milvus
+
+**前端用户选择注意事项**：
+
+平台管理后台的用户选择下拉框（知识库管理、检索测试、评分重算等场景）必须绑定 `User.userId`（雪花ID 字符串），**不能**绑定 `User.id`（users 表自增主键）。二者均为唯一标识但取值不同：
+
+| 字段 | 类型 | 来源 | 用途 |
+|------|------|------|------|
+| `User.id` | Long | users 表自增主键 | 平台内部关联（如绑定表外键） |
+| `User.userId` | String | 雪花算法生成 | 对外暴露的用户标识，用于 JWT、Milvus 集合命名、工具参数 |
+
+若前端误绑 `User.id`，会导致 `agentId` 传成自增ID（如 `5`），Milvus 集合名拼成 `kb_5_default`，而实际数据存储在 `kb_{雪花ID}_default` 中，从而检索不到数据。
+
+`/knowledge/owners/users` 接口返回的用户对象同时包含 `id` 和 `userId` 两个字段，前端取用时务必使用 `userId`。
 
 ---
 
@@ -754,7 +769,7 @@ Authorization: Bearer {jwt_token}
 |------|------|------|------|
 | `file` | File | **必填** | 上传的文档文件 |
 | `collection_name` | string | **必填** | 知识库集合名称 |
-| `merchant_id` | string | 可选 | 商家 ID |
+| `user_id` | string | 可选 | 用户雪花ID，用于定位该用户的 Milvus 物理集合 |
 | `document_type` | string | 可选 | 文档类型：`pdf`/`txt`/`md`/`docx` 等 |
 
 **响应**

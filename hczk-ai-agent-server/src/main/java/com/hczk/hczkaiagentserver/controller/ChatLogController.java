@@ -22,7 +22,7 @@ public class ChatLogController {
      */
     @GetMapping
     public Result<List<ChatLog>> getAllChatLogs(
-            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String userId,
             @RequestParam(required = false) Long apiKeyId,
             @RequestParam(required = false) String modelName,
             @RequestParam(required = false) String status) {
@@ -47,7 +47,7 @@ public class ChatLogController {
      * 查询指定用户的对话记录
      */
     @GetMapping("/user/{userId}")
-    public Result<List<ChatLog>> getUserChatLogs(@PathVariable Long userId) {
+    public Result<List<ChatLog>> getUserChatLogs(@PathVariable String userId) {
         return Result.success(chatLogMapper.selectList(
                 new LambdaQueryWrapper<ChatLog>()
                         .eq(ChatLog::getUserId, userId)

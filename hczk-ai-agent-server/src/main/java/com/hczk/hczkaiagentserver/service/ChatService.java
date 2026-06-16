@@ -94,7 +94,7 @@ public class ChatService {
 
         // 从SecurityContext提取认证信息
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        Long userId = resolveUserId(auth);
+        String userId = resolveUserId(auth);
         Long apiKeyId = resolveApiKeyId(auth);
 
         // 必须通过API Key认证
@@ -169,7 +169,7 @@ public class ChatService {
             // Lambda中使用的final变量
             final AiModel finalModel = model;
             final Long finalApiKeyId = apiKeyId;
-            final Long finalUserId = userId;
+            final String finalUserId = userId;
             final BigDecimal unitPrice = apiKey.getUnitPrice() != null ? apiKey.getUnitPrice() : BigDecimal.ZERO;
             final String chatId = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
             final long createdSeconds = System.currentTimeMillis() / 1000;
@@ -284,7 +284,7 @@ public class ChatService {
 
         // 从SecurityContext提取认证信息
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        Long userId = resolveUserId(auth);
+        String userId = resolveUserId(auth);
         Long apiKeyId = resolveApiKeyId(auth);
 
         if (apiKeyId == null) {
@@ -462,7 +462,7 @@ public class ChatService {
      * @param startTime    请求开始时间戳
      */
     private void processBilling(AiModel model, String inputContent, long inputTokens, String outputText,
-                                Long userId, Long apiKeyId, BigDecimal unitPrice, long startTime) {
+                                String userId, Long apiKeyId, BigDecimal unitPrice, long startTime) {
         try {
             // 估算输出Token数（2字符=1Token，最小1）
             long outputTokens = TokenCounter.estimateTokens(outputText);
@@ -510,7 +510,7 @@ public class ChatService {
      * @param cost         本次调用费用
      */
     private void saveChatLog(AiModel model, String inputContent, String outputContent,
-                             long inputTokens, Long userId, Long apiKeyId, long startTime,
+                             long inputTokens, String userId, Long apiKeyId, long startTime,
                              String status, String errorMessage, BigDecimal cost) {
         try {
             long outputTokens = TokenCounter.estimateTokens(outputContent);
@@ -543,16 +543,16 @@ public class ChatService {
      * - JWT认证：principal是username，需查库获取userId
      *
      * @param auth 认证信息
-     * @return 用户ID，无法解析时返回null
+     * @return 用户ID（雪花ID字符串），无法解析时返回null
      */
-    private Long resolveUserId(Authentication auth) {
+    private String resolveUserId(Authentication auth) {
         if (auth == null) return null;
 
         // API Key认证：details中包含userId和apiKeyId
         if (auth.getDetails() instanceof Map) {
             Map<?, ?> details = (Map<?, ?>) auth.getDetails();
             Object userId = details.get("userId");
-            if (userId instanceof Long) return (Long) userId;
+            if (userId instanceof String) return (String) userId;
         }
 
         // JWT认证：principal是username，查库获取userId
@@ -562,7 +562,7 @@ public class ChatService {
             User user = userMapper.selectOne(
                     new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
                             .eq(User::getUsername, username));
-            return user != null ? user.getId() : null;
+            return user != null ? user.getUserId() : null;
         }
 
         return null;

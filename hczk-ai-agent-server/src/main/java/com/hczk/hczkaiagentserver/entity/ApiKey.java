@@ -20,7 +20,7 @@ public class ApiKey {
     private String apiKey;
 
     @TableField("user_id")
-    private Long userId;
+    private String userId;
 
     /** 绑定的大模型ID列表（一对多） */
     @TableField(value = "model_ids", typeHandler = JacksonTypeHandler.class)

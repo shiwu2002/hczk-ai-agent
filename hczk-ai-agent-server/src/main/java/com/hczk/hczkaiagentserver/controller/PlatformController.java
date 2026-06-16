@@ -184,25 +184,25 @@ public class PlatformController {
     }
 
     @GetMapping("/bindings/{userId}")
-    public Result<MerchantAgentBinding> getBindingByUserId(@PathVariable Long userId) {
+    public Result<MerchantAgentBinding> getBindingByUserId(@PathVariable String userId) {
         return bindingService.findByUserId(userId)
                 .map(Result::success)
                 .orElse(Result.error("绑定不存在"));
     }
 
     @PutMapping("/bindings/{userId}")
-    public Result<MerchantAgentBinding> updateBinding(@PathVariable Long userId, @RequestBody MerchantAgentBinding binding) {
+    public Result<MerchantAgentBinding> updateBinding(@PathVariable String userId, @RequestBody MerchantAgentBinding binding) {
         return Result.success(bindingService.updateBinding(userId, binding));
     }
 
     @DeleteMapping("/bindings/{userId}")
-    public Result<Void> deleteBinding(@PathVariable Long userId) {
+    public Result<Void> deleteBinding(@PathVariable String userId) {
         bindingService.deleteBinding(userId);
         return Result.success();
     }
 
     @PatchMapping("/bindings/{userId}")
-    public Result<MerchantAgentBinding> toggleBinding(@PathVariable Long userId, @RequestParam boolean enabled) {
+    public Result<MerchantAgentBinding> toggleBinding(@PathVariable String userId, @RequestParam boolean enabled) {
         return Result.success(bindingService.toggleBinding(userId, enabled));
     }
 }

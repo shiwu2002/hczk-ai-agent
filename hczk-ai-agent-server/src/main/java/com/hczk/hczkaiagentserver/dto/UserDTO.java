@@ -10,9 +10,7 @@ import java.math.BigDecimal;
  */
 @Data
 public class UserDTO {
-    /** 主键ID */
-    private Long id;
-    /** 用户唯一标识（随机生成，如 U1A2B3C4D5E6F7G8） */
+    /** 用户唯一标识（雪花ID） */
     private String userId;
     /** 用户名 */
     private String username;

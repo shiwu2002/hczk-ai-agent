@@ -45,11 +45,11 @@ public interface UserService {
     /**
      * 更新用户信息
      *
-     * @param id      用户ID
+     * @param userId  用户ID（雪花ID）
      * @param userDTO 用户更新数据
      * @return 更新后的用户信息
      */
-    User updateUser(Long id, UserDTO userDTO);
+    User updateUser(String userId, UserDTO userDTO);
 
     /**
      * 重置密码（忘记密码）

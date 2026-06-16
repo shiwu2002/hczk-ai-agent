@@ -7,9 +7,9 @@ import java.util.Optional;
 
 public interface MerchantAgentBindingService {
     MerchantAgentBinding createBinding(MerchantAgentBinding binding);
-    MerchantAgentBinding updateBinding(Long userId, MerchantAgentBinding binding);
-    void deleteBinding(Long userId);
-    Optional<MerchantAgentBinding> findByUserId(Long userId);
+    MerchantAgentBinding updateBinding(String userId, MerchantAgentBinding binding);
+    void deleteBinding(String userId);
+    Optional<MerchantAgentBinding> findByUserId(String userId);
     List<MerchantAgentBinding> getAllBindings();
-    MerchantAgentBinding toggleBinding(Long userId, boolean enabled);
+    MerchantAgentBinding toggleBinding(String userId, boolean enabled);
 }

@@ -288,7 +288,7 @@ function getAgentBindings(agentId) {
 }
 
 function getUserName(userId) {
-  const user = users.value.find(u => u.id === userId);
+  const user = users.value.find(u => u.userId === userId);
   return user ? user.username : `用户#${userId}`;
 }
 
@@ -303,7 +303,7 @@ function openBindModal(agent) {
 const bindableUsers = computed(() => {
   if (!bindTargetAgent.value) return [];
   const boundUserIds = getAgentBindings(bindTargetAgent.value.id).map(b => b.userId);
-  return users.value.filter(u => !boundUserIds.includes(u.id));
+  return users.value.filter(u => !boundUserIds.includes(u.userId));
 });
 
 // 保存绑定
@@ -994,7 +994,7 @@ function scrollToTrialBottom(agentId) {
             <label class="block text-sm text-slate-300 mb-1.5 font-medium">选择用户 <span class="text-red-400">*</span></label>
             <select v-model="bindForm.userId" class="input-field">
               <option value="">请选择用户</option>
-              <option v-for="u in bindableUsers" :key="u.id" :value="u.id">{{ u.username }}{{ u.companyName ? ` (${u.companyName})` : '' }}</option>
+              <option v-for="u in bindableUsers" :key="u.userId" :value="u.userId">{{ u.username }}{{ u.companyName ? ` (${u.companyName})` : '' }}</option>
             </select>
             <p v-if="bindableUsers.length === 0" class="text-[11px] text-amber-400/70 mt-1">所有用户已绑定此智能体</p>
           </div>

@@ -282,7 +282,7 @@ function openDayDetail(index) {
 
 // Open user detail with charts
 function openUserDetail(user) {
-  const userRecords = billingRecords.value.filter(r => r.userId === user.id && r.type === 'TOKEN_USAGE')
+  const userRecords = billingRecords.value.filter(r => r.userId === user.userId && r.type === 'TOKEN_USAGE')
 
   // Daily data for this user (last 30 days)
   const now = new Date()
@@ -365,7 +365,7 @@ function openUserDetail(user) {
 const userMap = computed(() => {
   const map = {}
   for (const u of users.value) {
-    map[u.id] = u.username || u.email || ('用户' + u.id)
+    map[u.userId] = u.username || u.email || ('用户' + u.userId)
   }
   return map
 })
@@ -636,7 +636,7 @@ const userMap = computed(() => {
               </tr>
             </thead>
             <tbody class="divide-y divide-white/5">
-              <tr v-for="user in recentUsers" :key="user.id" class="hover:bg-white/5 transition-colors cursor-pointer" @click="openUserDetail(user)">
+              <tr v-for="user in recentUsers" :key="user.userId" class="hover:bg-white/5 transition-colors cursor-pointer" @click="openUserDetail(user)">
                 <td class="py-4">
                   <div class="flex items-center gap-3">
                     <div class="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white text-xs font-bold">
@@ -747,7 +747,7 @@ const userMap = computed(() => {
         <div class="p-6">
           <h4 class="text-sm font-medium text-slate-400 mb-4">最近调用记录</h4>
           <div class="space-y-2 max-h-48 overflow-y-auto">
-            <div v-for="(r, i) in billingRecords.filter(r => r.userId === userDetailData.user.id && r.type === 'TOKEN_USAGE').slice(-10).reverse()" :key="i"
+            <div v-for="(r, i) in billingRecords.filter(r => r.userId === userDetailData.user.userId && r.type === 'TOKEN_USAGE').slice(-10).reverse()" :key="i"
               class="flex items-center gap-3 p-3 rounded-lg bg-white/[0.02] hover:bg-white/[0.04]">
               <div class="flex-1 min-w-0">
                 <p class="text-sm text-white truncate">{{ r.detail || '-' }}</p>

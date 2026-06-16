@@ -50,7 +50,7 @@ public class AgentServiceImpl implements AgentService {
     }
 
     @Override
-    public List<Agent> getAgentsByUserId(Long userId) {
+    public List<Agent> getAgentsByUserId(String userId) {
         return agentMapper.selectList(new LambdaQueryWrapper<Agent>().eq(Agent::getUserId, userId));
     }
 

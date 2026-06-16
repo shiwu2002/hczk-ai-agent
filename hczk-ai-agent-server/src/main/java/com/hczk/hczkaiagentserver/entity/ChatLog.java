@@ -13,7 +13,7 @@ public class ChatLog {
     private Long id;
 
     @TableField("user_id")
-    private Long userId;
+    private String userId;
 
     @TableField("api_key_id")
     private Long apiKeyId;

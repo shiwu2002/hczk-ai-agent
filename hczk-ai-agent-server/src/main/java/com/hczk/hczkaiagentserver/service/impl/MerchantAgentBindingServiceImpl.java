@@ -50,7 +50,7 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
 
     @Override
     @Transactional
-    public MerchantAgentBinding updateBinding(Long userId, MerchantAgentBinding binding) {
+    public MerchantAgentBinding updateBinding(String userId, MerchantAgentBinding binding) {
         Optional<MerchantAgentBinding> existing = findByUserId(userId);
         if (existing.isEmpty()) {
             throw new RuntimeException("绑定不存在: userId=" + userId);
@@ -85,7 +85,7 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
 
     @Override
     @Transactional
-    public void deleteBinding(Long userId) {
+    public void deleteBinding(String userId) {
         Optional<MerchantAgentBinding> existing = findByUserId(userId);
         if (existing.isEmpty()) {
             throw new RuntimeException("绑定不存在: userId=" + userId);
@@ -96,7 +96,7 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
     }
 
     @Override
-    public Optional<MerchantAgentBinding> findByUserId(Long userId) {
+    public Optional<MerchantAgentBinding> findByUserId(String userId) {
         String cacheKey = CACHE_PREFIX + userId;
         String cached = redisCache.getCachedJson(cacheKey);
         if (cached != null) {
@@ -121,7 +121,7 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
 
     @Override
     @Transactional
-    public MerchantAgentBinding toggleBinding(Long userId, boolean enabled) {
+    public MerchantAgentBinding toggleBinding(String userId, boolean enabled) {
         Optional<MerchantAgentBinding> existing = findByUserId(userId);
         if (existing.isEmpty()) {
             throw new RuntimeException("绑定不存在: userId=" + userId);

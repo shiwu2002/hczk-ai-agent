@@ -23,7 +23,7 @@ async function loadData() {
 }
 
 function getUserName(userId) {
-  const user = users.value.find(u => u.id === userId)
+  const user = users.value.find(u => u.userId === userId)
   return user ? (user.name || user.username) : `用户${userId}`
 }
 
