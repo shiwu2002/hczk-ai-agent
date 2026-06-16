@@ -16,6 +16,9 @@ jwt:
   agent:
     shared-secret: ${JWT_AGENT_SHARED_SECRET:${JWT_SECRET}}
 
+app:
+  platform-url: ${APP_PLATFORM_URL:https://your-domain.com}
+
 logging:
   level:
     com.hczk: INFO

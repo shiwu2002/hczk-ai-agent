@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.hczk.hczkaiagentserver.entity.MerchantAgentBinding;
 import com.hczk.hczkaiagentserver.mapper.MerchantAgentBindingMapper;
 import com.hczk.hczkaiagentserver.service.MerchantAgentBindingService;
+import com.hczk.hczkaiagentserver.service.RedisCacheService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -18,6 +20,9 @@ import java.util.Optional;
 public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingService {
 
     private final MerchantAgentBindingMapper bindingMapper;
+    private final RedisCacheService redisCache;
+    private final ObjectMapper objectMapper;
+    private static final String CACHE_PREFIX = "bindings:merchant:";
 
     @Override
     @Transactional
@@ -38,6 +43,7 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
         }
 
         bindingMapper.insert(binding);
+        redisCache.deleteKey(CACHE_PREFIX + binding.getMerchantId());
         log.info("创建商家绑定: merchantId={}, agentId={}, skillId={}, endpoint={}, apiKeyId={}",
                 binding.getMerchantId(), binding.getAgentId(), binding.getSkillId(),
                 binding.getAgentEndpoint(), binding.getApiKeyId());
@@ -77,6 +83,7 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
         }
 
         bindingMapper.updateById(update);
+        redisCache.deleteKey(CACHE_PREFIX + merchantId);
         log.info("更新商家绑定: merchantId={}", merchantId);
         return update;
     }
@@ -89,14 +96,27 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
             throw new RuntimeException("商家绑定不存在: " + merchantId);
         }
         bindingMapper.deleteById(existing.get().getId());
+        redisCache.deleteKey(CACHE_PREFIX + merchantId);
         log.info("删除商家绑定: merchantId={}", merchantId);
     }
 
     @Override
     public Optional<MerchantAgentBinding> findByMerchantId(String merchantId) {
+        String cacheKey = CACHE_PREFIX + merchantId;
+        String cached = redisCache.getCachedJson(cacheKey);
+        if (cached != null) {
+            try {
+                MerchantAgentBinding binding = objectMapper.readValue(cached, MerchantAgentBinding.class);
+                return Optional.ofNullable(binding);
+            } catch (Exception e) { log.debug("绑定缓存反序列化失败，回源: merchantId={}", merchantId); }
+        }
         LambdaQueryWrapper<MerchantAgentBinding> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(MerchantAgentBinding::getMerchantId, merchantId);
-        return Optional.ofNullable(bindingMapper.selectOne(wrapper));
+        MerchantAgentBinding binding = bindingMapper.selectOne(wrapper);
+        if (binding != null) {
+            try { redisCache.cacheJsonWithRandomTTL(cacheKey, objectMapper.writeValueAsString(binding)); } catch (Exception ignored) {}
+        }
+        return Optional.ofNullable(binding);
     }
 
     @Override
@@ -114,6 +134,7 @@ public class MerchantAgentBindingServiceImpl implements MerchantAgentBindingServ
         MerchantAgentBinding binding = existing.get();
         binding.setEnabled(enabled);
         bindingMapper.updateById(binding);
+        redisCache.deleteKey(CACHE_PREFIX + merchantId);
         log.info("切换商家绑定状态: merchantId={}, enabled={}", merchantId, enabled);
         return binding;
     }

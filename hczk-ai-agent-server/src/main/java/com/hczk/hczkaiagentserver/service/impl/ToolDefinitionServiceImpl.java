@@ -31,7 +31,8 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
         if (tool.getType() == null) tool.setType("api");
         if (tool.getStatus() == null) tool.setStatus("active");
         toolMapper.insert(tool);
-        redisCache.invalidateToolsCache();
+        redisCache.invalidateByPrefix("tools:");
+        redisCache.deleteKey("skills:all");
         log.info("创建工具: id={}, name={}, skillId={}", tool.getId(), tool.getName(), tool.getSkillId());
         return tool;
     }
@@ -43,7 +44,8 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
         if (existing == null) throw new RuntimeException("工具不存在: " + id);
         tool.setId(id);
         toolMapper.updateById(tool);
-        redisCache.invalidateToolsCache();
+        redisCache.invalidateByPrefix("tools:");
+        redisCache.deleteKey("skills:all");
         log.info("更新工具: id={}", id);
         return toolMapper.selectById(id);
     }
@@ -55,7 +57,8 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
         if (tool == null) throw new RuntimeException("工具不存在: " + id);
         if ("builtin".equals(tool.getType())) throw new RuntimeException("内置工具不可删除");
         toolMapper.deleteById(id);
-        redisCache.invalidateToolsCache();
+        redisCache.invalidateByPrefix("tools:");
+        redisCache.deleteKey("skills:all");
         log.info("删除工具: id={}", id);
     }
 
@@ -74,7 +77,7 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
     @Override
     public List<ToolDefinition> getBySkillId(String skillId) {
         String cacheKey = RedisCacheService.toolsKey("skill:" + skillId);
-        String cached = redisCache.getCachedToolsJson(cacheKey);
+        String cached = redisCache.getCachedJson(cacheKey);
         if (cached != null) {
             try {
                 return objectMapper.readValue(cached,
@@ -87,7 +90,7 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
         qw.eq("skill_id", skillId).orderByAsc("id");
         List<ToolDefinition> list = toolMapper.selectList(qw);
         try {
-            redisCache.cacheToolsJson(cacheKey, objectMapper.writeValueAsString(list));
+            redisCache.cacheJsonWithRandomTTL(cacheKey, objectMapper.writeValueAsString(list));
         } catch (Exception ignored) {}
         return list;
     }
@@ -95,7 +98,7 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
     @Override
     public List<ToolDefinition> getActiveBySkillId(String skillId) {
         String cacheKey = RedisCacheService.toolsKey("active_skill:" + skillId);
-        String cached = redisCache.getCachedToolsJson(cacheKey);
+        String cached = redisCache.getCachedJson(cacheKey);
         if (cached != null) {
             try {
                 return objectMapper.readValue(cached,
@@ -108,7 +111,7 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
         qw.eq("skill_id", skillId).eq("status", "active").orderByAsc("id");
         List<ToolDefinition> list = toolMapper.selectList(qw);
         try {
-            redisCache.cacheToolsJson(cacheKey, objectMapper.writeValueAsString(list));
+            redisCache.cacheJsonWithRandomTTL(cacheKey, objectMapper.writeValueAsString(list));
         } catch (Exception ignored) {}
         return list;
     }
@@ -127,7 +130,8 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
         if (tool == null) throw new RuntimeException("工具不存在: " + id);
         tool.setStatus("active".equals(tool.getStatus()) ? "inactive" : "active");
         toolMapper.updateById(tool);
-        redisCache.invalidateToolsCache();
+        redisCache.invalidateByPrefix("tools:");
+        redisCache.deleteKey("skills:all");
         return tool;
     }
 
@@ -139,7 +143,7 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
     @Override
     public List<Map<String, Object>> getActiveToolDefinitionsForGroup(String skillName, String platformBaseUrl) {
         String cacheKey = RedisCacheService.toolsKey("llm_group:" + skillName);
-        String cached = redisCache.getCachedToolsJson(cacheKey);
+        String cached = redisCache.getCachedJson(cacheKey);
         if (cached != null) {
             try {
                 return objectMapper.readValue(cached,
@@ -156,7 +160,7 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
 
         List<Map<String, Object>> tools = convertToolsToLLMFormat(getActiveBySkillId(skill.getId()), platformBaseUrl);
         try {
-            redisCache.cacheToolsJson(cacheKey, objectMapper.writeValueAsString(tools));
+            redisCache.cacheJsonWithRandomTTL(cacheKey, objectMapper.writeValueAsString(tools));
         } catch (Exception ignored) {}
         return tools;
     }

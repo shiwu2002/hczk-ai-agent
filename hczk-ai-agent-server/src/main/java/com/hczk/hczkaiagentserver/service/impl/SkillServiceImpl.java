@@ -5,7 +5,9 @@ import com.hczk.hczkaiagentserver.entity.Skill;
 import com.hczk.hczkaiagentserver.mapper.SkillMapper;
 import com.hczk.hczkaiagentserver.mapper.ToolDefinitionMapper;
 import com.hczk.hczkaiagentserver.service.SkillService;
+import com.hczk.hczkaiagentserver.service.RedisCacheService;
 import com.hczk.hczkaiagentserver.service.ToolDefinitionService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,12 +23,16 @@ public class SkillServiceImpl implements SkillService {
     private final SkillMapper skillMapper;
     private final ToolDefinitionMapper toolDefMapper;
     private final ToolDefinitionService toolDefinitionService;
+    private final RedisCacheService redisCache;
+    private final ObjectMapper objectMapper;
+    private static final String CACHE_KEY = "skills:all";
 
     @Override
     @Transactional
     public Skill createSkill(Skill skill) {
         if (skill.getStatus() == null) skill.setStatus("active");
         skillMapper.insert(skill);
+        redisCache.deleteKey(CACHE_KEY);
         log.info("创建工具组: id={}, name={}", skill.getId(), skill.getName());
         return skill;
     }
@@ -38,6 +44,7 @@ public class SkillServiceImpl implements SkillService {
         if (existing == null) throw new RuntimeException("工具组不存在: " + skillId);
         skill.setId(skillId);
         skillMapper.updateById(skill);
+        redisCache.deleteKey(CACHE_KEY);
         log.info("更新工具组: id={}", skillId);
         return skillMapper.selectById(skillId);
     }
@@ -49,6 +56,7 @@ public class SkillServiceImpl implements SkillService {
         if (skill == null) throw new RuntimeException("工具组不存在: " + skillId);
         // 级联删除工具：由 DB 外键 ON DELETE CASCADE 处理
         skillMapper.deleteById(skillId);
+        redisCache.deleteKey(CACHE_KEY);
         log.info("删除工具组: id={}", skillId);
     }
 
@@ -59,9 +67,17 @@ public class SkillServiceImpl implements SkillService {
 
     @Override
     public List<Skill> getAllSkills() {
+        String cached = redisCache.getCachedJson(CACHE_KEY);
+        if (cached != null) {
+            try {
+                return objectMapper.readValue(cached, objectMapper.getTypeFactory().constructCollectionType(List.class, Skill.class));
+            } catch (Exception e) { log.debug("skills缓存反序列化失败，回源"); }
+        }
         QueryWrapper<Skill> qw = new QueryWrapper<>();
         qw.orderByAsc("category").orderByAsc("name");
-        return skillMapper.selectList(qw);
+        List<Skill> list = skillMapper.selectList(qw);
+        try { redisCache.cacheJsonWithRandomTTL(CACHE_KEY, objectMapper.writeValueAsString(list)); } catch (Exception ignored) {}
+        return list;
     }
 
     @Override

@@ -233,41 +233,54 @@ public class RedisCacheService {
 
     // ========== 工具定义缓存 ==========
 
-    /** 获取缓存的工具定义 JSON 字符串 */
-    public String getCachedToolsJson(String cacheKey) {
+    /** 通用：获取缓存的 JSON 字符串 */
+    public String getCachedJson(String cacheKey) {
         try {
             Object cached = redisTemplate.opsForValue().get(cacheKey);
             return cached != null ? cached.toString() : null;
         } catch (Exception e) {
-            log.warn("Redis 获取工具缓存失败: key={}, error={}", cacheKey, e.getMessage());
+            log.warn("Redis 获取缓存失败: key={}, error={}", cacheKey, e.getMessage());
             return null;
         }
     }
 
-    /** 缓存工具定义 JSON 字符串（20-30分钟随机过期，防缓存雪崩） */
-    public void cacheToolsJson(String cacheKey, String json) {
+    /** 通用：缓存 JSON 字符串（20-30分钟随机过期，防缓存雪崩） */
+    public void cacheJsonWithRandomTTL(String cacheKey, String json) {
         try {
             int ttl = TOOLS_CACHE_MIN_MINUTES + random.nextInt(TOOLS_CACHE_MAX_MINUTES - TOOLS_CACHE_MIN_MINUTES + 1);
             redisTemplate.opsForValue().set(cacheKey, json, ttl, TimeUnit.MINUTES);
         } catch (Exception e) {
-            log.warn("Redis 设置工具缓存失败: key={}, error={}", cacheKey, e.getMessage());
+            log.warn("Redis 设置缓存失败: key={}, error={}", cacheKey, e.getMessage());
         }
     }
 
-    /** 失效所有工具定义缓存（按前缀批量删除） */
-    public void invalidateToolsCache() {
+    /** 通用：失效指定前缀的所有缓存 */
+    public void invalidateByPrefix(String prefix) {
         try {
-            var keys = redisTemplate.keys(TOOLS_PREFIX + "*");
+            var keys = redisTemplate.keys(prefix + "*");
             if (keys != null && !keys.isEmpty()) {
                 redisTemplate.delete(keys);
             }
         } catch (Exception e) {
-            log.warn("Redis 清除工具缓存失败: error={}", e.getMessage());
+            log.warn("Redis 清除缓存失败: prefix={}, error={}", prefix, e.getMessage());
+        }
+    }
+
+    /** 删除单个缓存 key */
+    public void deleteKey(String key) {
+        try {
+            redisTemplate.delete(key);
+        } catch (Exception e) {
+            log.warn("Redis 删除缓存key失败: key={}, error={}", key, e.getMessage());
         }
     }
 
     /** 构建工具缓存 key */
-    public static String toolsKey(String suffix) {
-        return TOOLS_PREFIX + suffix;
-    }
+    public static String toolsKey(String suffix) { return TOOLS_PREFIX + suffix; }
+
+    // ========== 待添加缓存前缀 ==========
+    private static final String BINDINGS_PREFIX = "bindings:";
+    private static final String SKILLS_ALL_KEY = "skills:all";
+    private static final String AGENTS_ALL_KEY = "agents:all";
+    private static final String KB_BASES_KEY = "kb:bases:all";
 }
