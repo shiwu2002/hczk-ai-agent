@@ -1,6 +1,6 @@
 # 桓宸智科 AI 平台 — 智能体接入规范
 
-> 版本：1.1.0
+> 版本：2.0.0
 > 日期：2026-06-16
 > 适用范围：所有需要注册到桓宸智科 AI 平台的容器智能体
 
@@ -16,6 +16,7 @@
 - **会话管理**：代理获取会话历史、清除会话
 - **文档管理**：将知识库文档上传到智能体的文档接口（可选）
 - **统一管理**：在管理界面以卡片形式展示所有智能体状态和能力
+- **JWT 鉴权**：平台调用智能体时使用 JWT Token 传递身份信息，智能体通过共享密钥验证
 
 ## 2. 接口规范总览
 
@@ -29,16 +30,177 @@
 | 清除会话 | DELETE | `/api/chat/sessions/{session_id}` | 可选 | P2 | 清除指定会话 |
 | 文档上传 | POST | `/api/documents` | 可选 | P1 | 上传知识库文档 |
 
-## 3. 接口详细规范
+## 3. JWT 鉴权机制
 
-### 3.1 健康检测接口（必填）
+### 3.1 概述
+
+平台调用智能体所有接口时，通过 `Authorization` 请求头传递 JWT Token，不再明文传递 API Key。智能体端使用与平台共享的签名密钥验证 JWT 的有效性，从中提取商家身份和 API Key 信息。
+
+**算法**：HMAC-SHA256（HS256），签名密钥为字符串经 UTF-8 编码的字节。
+
+**适用范围**：所有业务接口（对话、流式对话、会话历史、清除会话、文档上传）均需验证 JWT。健康检测和元信息接口不需要 JWT 验证（仍使用注册时配置的 `auth_header`，如已配置）。
+
+### 3.2 JWT Payload 结构
+
+```json
+{
+  "sub": "merchant_M001",
+  "iss": "hczk-platform",
+  "iat": 1781593200,
+  "exp": 1781596800,
+  "merchant_id": "M001",
+  "scope": "chat",
+  "apiKey": "sk-hczk-xxx"
+}
+```
+
+**字段说明**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `sub` | string | 是 | 主体标识，格式为 `merchant_{merchant_id}` |
+| `iss` | string | 是 | 签发者，固定为 `hczk-platform` |
+| `iat` | number | 是 | 签发时间（Unix 时间戳，秒级） |
+| `exp` | number | 是 | 过期时间（Unix 时间戳，秒级），默认1小时 |
+| `merchant_id` | string | 是 | 商家 ID，用于多租户隔离 |
+| `scope` | string | 是 | 权限范围，当前固定为 `chat` |
+| `apiKey` | string | 否 | 平台 API Key（访问知识库和模型时使用），试用场景为空 |
+
+### 3.3 请求头格式
+
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdW...省略...xxx
+```
+
+> 注意：与旧版 `Authorization: {auth_header}` 格式不同，JWT 方式始终带有 `Bearer ` 前缀。
+
+### 3.4 共享密钥配置
+
+平台和智能体端必须配置相同的 HMAC-SHA256 签名密钥：
+
+**平台端配置**
+
+| 环境 | 路径 | 说明 |
+|------|------|------|
+| 开发环境 | `application-dev.yaml` → `jwt.secret` | 默认值为 `hczk-ai-platform-secret-key-2024-very-long-and-secure` |
+| 生产环境 | 环境变量 `JWT_AGENT_SHARED_SECRET` | 若未设置则回退到 `JWT_SECRET` |
+
+**智能体端配置**
+
+| 环境 | 配置方式 | 示例值 |
+|------|---------|--------|
+| 开发环境 | 硬编码或配置文件 | `hczk-ai-platform-secret-key-2024-very-long-and-secure` |
+| 生产环境 | 环境变量 `JWT_AGENT_SHARED_SECRET` | 与平台保持一致 |
+
+**相关配置项**
+
+| 配置项 | 默认值 | 说明 |
+|------|--------|------|
+| `jwt.agent.shared-secret` | 复用 `jwt.secret` | 智能体调用 JWT 的签名密钥 |
+| `jwt.agent.expiration` | `3600000`（1 小时） | Token 过期时间（毫秒） |
+| `jwt.agent.issuer` | `hczk-platform` | JWT 签发者标识 |
+
+### 3.5 智能体端验证流程
+
+```
+1. 从 Authorization 请求头提取 Bearer Token
+   - 检查格式：必须以 "Bearer " 开头
+   - 截取 "Bearer " 之后的部分作为 JWT Token
+
+2. 使用共享密钥验证 JWT 签名
+   - 算法：HS256
+   - 密钥：共享密钥字符串的 UTF-8 字节
+
+3. 检查 iss（签发者）== "hczk-platform"
+   - 防止其他来源的 JWT 被误接受
+
+4. 检查 exp（过期时间）未过期
+   - 建议允许 30 秒时钟偏差
+
+5. 从 payload 中提取 merchant_id 和 apiKey
+   - merchant_id 用于多租户隔离（必填）
+   - apiKey 用于调用平台服务（可空）
+
+6. 使用 merchant_id 做多租户隔离
+7. 使用 apiKey 调用平台知识库/模型服务（如需要）
+```
+
+**验证失败时的响应**
+
+| 失败原因 | HTTP 状态码 | 响应体示例 |
+|---------|------------|-----------|
+| 缺少认证信息 | 401 | `{"error": "缺少认证信息"}` |
+| JWT 签名无效 | 401 | `{"error": "JWT 验证失败: 签名无效"}` |
+| 签发者不匹配 | 401 | `{"error": "JWT 验证失败: 无法识别的签发者"}` |
+| Token 已过期 | 401 | `{"error": "JWT 验证失败: Token 已过期"}` |
+
+### 3.6 试用场景
+
+管理后台试用智能体时，平台生成特殊的 JWT Token：
+
+- `merchant_id` 为 `"trial"`
+- `apiKey` 为空（不包含该字段）
+- `sub` 为 `"merchant_trial"`
+
+```json
+{
+  "sub": "merchant_trial",
+  "iss": "hczk-platform",
+  "merchant_id": "trial",
+  "scope": "chat"
+}
+```
+
+智能体端应识别 `merchant_id === "trial"` 为试用请求，可限制功能或返回示例数据。
+
+### 3.7 代码示例
+
+**Java 生成（平台端，JJWT 0.12.x）**
+
+```java
+SecretKey key = Keys.hmacShaKeyFor(sharedSecret.getBytes(StandardCharsets.UTF_8));
+String token = Jwts.builder()
+    .subject("merchant_" + merchantId)
+    .issuer("hczk-platform")
+    .issuedAt(new Date())
+    .expiration(new Date(System.currentTimeMillis() + 3600000))
+    .claim("merchant_id", merchantId)
+    .claim("scope", "chat")
+    .claim("apiKey", apiKey)  // 可选
+    .signWith(key)
+    .compact();
+```
+
+**Node.js 验证（智能体端，jsonwebtoken）**
+
+```js
+const jwt = require('jsonwebtoken');
+const payload = jwt.verify(token, SHARED_SECRET, {
+    algorithms: ['HS256'],
+    issuer: 'hczk-platform',
+    clockTolerance: 30     // 允许 30 秒时钟偏差
+});
+```
+
+**Python 验证（智能体端，PyJWT）**
+
+```python
+import jwt
+payload = jwt.decode(token, SHARED_SECRET, algorithms=['HS256'],
+                     issuer='hczk-platform', leeway=30)
+```
+
+## 4. 接口详细规范
+
+### 4.1 健康检测接口（必填）
 
 **请求**
 
 ```
 GET {health_endpoint}
-Authorization: {auth_header}  （如果注册时配置了认证头）
 ```
+
+> 健康检测接口不携带 JWT 认证头。如果注册时配置了 `auth_header`，平台仍会携带该认证头用于兼容旧版智能体。
 
 **响应**
 
@@ -97,14 +259,14 @@ Authorization: {auth_header}  （如果注册时配置了认证头）
 
 ---
 
-### 3.2 对话接口（必填）
+### 4.2 对话接口（必填）
 
 **请求**
 
 ```
 POST {chat_endpoint}
 Content-Type: application/json
-Authorization: {auth_header}  （如果注册时配置了认证头）
+Authorization: Bearer {jwt_token}
 ```
 
 **请求体**
@@ -177,14 +339,14 @@ Authorization: {auth_header}  （如果注册时配置了认证头）
 
 ---
 
-### 3.3 流式对话接口（可选，P0 优先级）
+### 4.3 流式对话接口（可选，P0 优先级）
 
 **请求**
 
 ```
 POST {stream_endpoint}
 Content-Type: application/json
-Authorization: {auth_header}
+Authorization: Bearer {jwt_token}
 ```
 
 **请求体**：与 `POST /api/chat` 完全一致。
@@ -192,6 +354,8 @@ Authorization: {auth_header}
 **响应**：`Content-Type: text/event-stream`
 
 每行格式：`data: {JSON}\n\n`
+
+> **重要**：每个 SSE 事件必须以 `\n\n`（两个换行符）结尾，否则多事件会被拼接在一起导致客户端解析异常。平台代理层会剥离 `data:` 前缀后重新包装为 SseEmitter 格式，智能体端无需特殊处理，但必须确保每行以 `\n\n` 结尾。
 
 ```
 data: {"type":"thinking","content":"意图：order_query","metadata":{"confidence":0.95}}
@@ -221,14 +385,15 @@ data: {"type":"done"}
 
 ---
 
-### 3.4 智能体元信息接口（可选，P0 优先级）
+### 4.4 智能体元信息接口（可选，P0 优先级）
 
 **请求**
 
 ```
 GET {info_endpoint}
-Authorization: {auth_header}
 ```
+
+> 元信息接口不携带 JWT 认证头，平台直接调用。
 
 **响应**
 
@@ -280,13 +445,13 @@ Authorization: {auth_header}
 
 ---
 
-### 3.5 会话历史接口（可选，P1 优先级）
+### 4.5 会话历史接口（可选，P1 优先级）
 
 **请求**
 
 ```
 GET {history_endpoint}/{session_id}
-Authorization: {auth_header}
+Authorization: Bearer {jwt_token}
 ```
 
 **响应**
@@ -316,13 +481,13 @@ Authorization: {auth_header}
 
 ---
 
-### 3.6 清除会话接口（可选，P2 优先级）
+### 4.6 清除会话接口（可选，P2 优先级）
 
 **请求**
 
 ```
 DELETE {history_endpoint}/{session_id}
-Authorization: {auth_header}
+Authorization: Bearer {jwt_token}
 ```
 
 **响应**
@@ -338,14 +503,14 @@ Authorization: {auth_header}
 
 ---
 
-### 3.7 文档上传接口（可选，P1 优先级）
+### 4.7 文档上传接口（可选，P1 优先级）
 
 **请求**
 
 ```
 POST {document_endpoint}
 Content-Type: multipart/form-data
-Authorization: {auth_header}
+Authorization: Bearer {jwt_token}
 ```
 
 **表单字段**
@@ -371,9 +536,9 @@ Authorization: {auth_header}
 
 ---
 
-## 4. 注册流程
+## 5. 注册流程
 
-### 4.1 管理员注册智能体
+### 5.1 管理员注册智能体
 
 1. 在平台管理后台「智能体管理」页面点击「注册智能体」
 2. 填写以下信息：
@@ -403,66 +568,107 @@ Authorization: {auth_header}
 | 会话历史接口 | 否 | 如 `http://agent-host:3000/api/chat/history` |
 | 文档上传接口 | 否 | 如 `http://agent-host:3000/api/documents` |
 
-**认证配置**
+**旧版兼容配置**
 
 | 字段 | 必填 | 说明 |
 |------|------|------|
-| 认证头 | 否 | 如 `Bearer sk-xxx`，平台调用时携带 |
+| 认证头 | 否 | 如 `Bearer sk-xxx`，仅用于健康检测和元信息接口的旧版兼容 |
+
+> **注意**：业务接口（对话、流式对话等）的鉴权已统一使用 JWT Token，不再依赖注册时配置的 `auth_header`。`auth_header` 仅用于兼容旧版智能体的健康检测和元信息接口。新注册的智能体无需配置此项。
 
 3. 点击「注册」，平台立即调用健康检测接口验证可达性
 4. 注册成功后，智能体卡片显示在管理界面，能力标签和工具列表通过元信息接口自动获取
 
-### 4.2 绑定商家
+### 5.2 绑定商家
 
 在「用户智能体绑定」页面，将商家绑定到已注册的智能体，平台会将该商家的对话请求路由到此智能体。
 
+### 5.3 配置共享密钥
+
+智能体端需要配置与平台相同的 JWT 签名密钥，用于验证平台签发的 JWT Token：
+
+- **开发环境**：与平台使用相同的密钥字符串
+- **生产环境**：通过环境变量 `JWT_AGENT_SHARED_SECRET` 注入，与平台保持一致
+
 ---
 
-## 5. 平台行为说明
+## 6. 平台行为说明
 
-### 5.1 健康监测
+### 6.1 健康监测
 
 - 平台每 **30 秒** 自动调用所有智能体的健康检测接口
 - 管理员可手动点击「检测」按钮触发单次检测
 - 检测超时时间为 **3 秒**
 - 检测结果实时反映在智能体卡片的状态指示灯上
 
-### 5.2 对话路由
+### 6.2 对话路由
 
 - 用户通过 API Key 发起对话请求
-- 平台查询商家绑定 → 获取智能体 → 调用智能体的 `chat_endpoint`
-- 平台透传请求中的所有字段，智能体可自行扩展
+- 平台查询商家绑定 → 获取智能体 → 生成 JWT Token → 调用智能体的 `chat_endpoint`
+- 平台向智能体发送的请求体包含 `merchant_id`、`message`、`session_id` 等字段
+- JWT Token 中包含 `merchant_id` 和 `apiKey`，智能体端从 JWT 中提取使用
 - 路由优先级：`agent_id`（平台智能体）> `agent_endpoint`（旧 Endpoint 模式）> `skill_id`（旧 Skill 模式）
 
-### 5.3 流式对话
+### 6.3 流式对话
 
 - 请求 `POST /api/chat/stream` 时，平台优先使用智能体的 `stream_endpoint`
 - 如果未配置 `stream_endpoint`，自动降级为同步调用 `chat_endpoint`，将完整回复包装为 SSE 格式
 - SSE 事件类型：`thinking`、`retrieval`、`tool`、`content`、`done`
 
-### 5.4 元信息获取
+### 6.4 元信息获取
 
 - 页面加载时，平台自动调用配置了 `info_endpoint` 的智能体获取元信息
 - 元信息用于展示能力标签、工具列表、模型信息
 - 如果获取失败，降级显示数据库中注册时的基本信息
 
-### 5.5 认证
+### 6.5 JWT 鉴权
 
-- 如果注册时配置了 `auth_header`，平台调用智能体所有接口时都会携带此认证头
-- 格式：`Authorization: {auth_header}`
+- 平台调用智能体所有业务接口时，自动生成包含商家身份信息的 JWT Token
+- 生成时机：每次调用智能体前即时生成，不缓存复用
+- Token 通过 `Authorization: Bearer {jwt}` 请求头传递
+- Token 有效期默认 1 小时（`jwt.agent.expiration`），每次调用生成新 Token
+- 智能体端使用共享密钥验证 Token，从中提取 `merchant_id` 和 `apiKey`
+- 试用场景下 `merchant_id` 为 `"trial"`，`apiKey` 为空
+- 健康检测和元信息接口不使用 JWT，兼容旧版 `auth_header` 方式
 
 ---
 
-## 6. 接入示例
+## 7. 接入示例
 
-### 6.1 Node.js (Express) 示例
+### 7.1 Node.js (Express) 示例
 
 ```javascript
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const app = express();
 app.use(express.json());
 
-// 健康检测接口（必填）
+// 与平台共享的 JWT 签名密钥
+const SHARED_SECRET = process.env.JWT_AGENT_SHARED_SECRET || 'hczk-ai-platform-secret-key-2024-very-long-and-secure';
+
+// JWT 验证中间件
+function verifyPlatformJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: '缺少认证信息' });
+  }
+
+  try {
+    const token = authHeader.substring(7);
+    const payload = jwt.verify(token, SHARED_SECRET, { issuer: 'hczk-platform' });
+    // 将解析后的身份信息挂载到请求对象
+    req.merchant = {
+      id: payload.merchant_id,
+      apiKey: payload.apiKey || null,
+      isTrial: payload.merchant_id === 'trial'
+    };
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'JWT 验证失败: ' + err.message });
+  }
+}
+
+// 健康检测接口（必填，无需认证）
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -477,12 +683,19 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// 对话接口（必填）
-app.post('/api/chat', async (req, res) => {
+// 对话接口（必填，需 JWT 认证）
+app.post('/api/chat', verifyPlatformJWT, async (req, res) => {
   const { message, session_id, merchant_id, collection_name } = req.body;
+  const { apiKey, isTrial } = req.merchant;
+
+  // 试用场景限制
+  if (isTrial) {
+    // 可返回示例数据或限制功能
+  }
 
   try {
-    const reply = await processMessage(message, session_id, merchant_id);
+    // apiKey 可用于调用平台知识库/模型服务
+    const reply = await processMessage(message, session_id, merchant_id, apiKey);
     res.json({
       reply,
       session_id,
@@ -504,33 +717,28 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// 流式对话接口（可选）
-app.post('/api/chat/stream', async (req, res) => {
+// 流式对话接口（可选，需 JWT 认证）
+app.post('/api/chat/stream', verifyPlatformJWT, async (req, res) => {
   const { message, session_id, merchant_id } = req.body;
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
-  // 发送思考过程
   res.write(`data: ${JSON.stringify({ type: 'thinking', content: '意图识别中...' })}\n\n`);
-
-  // 发送工具调用
   res.write(`data: ${JSON.stringify({ type: 'tool', content: '检索知识库', metadata: { tool_name: 'retrieval' } })}\n\n`);
 
-  // 流式发送内容
   const chunks = ['您好', '！根据', '您的需求', '...'];
   for (const chunk of chunks) {
     res.write(`data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`);
     await new Promise(r => setTimeout(r, 100));
   }
 
-  // 结束
   res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
   res.end();
 });
 
-// 智能体元信息接口（可选）
+// 智能体元信息接口（可选，无需认证）
 app.get('/api/agent/info', (req, res) => {
   res.json({
     name: '客服智能体',
@@ -552,30 +760,30 @@ app.get('/api/agent/info', (req, res) => {
   });
 });
 
-// 会话历史接口（可选）
-app.get('/api/chat/history/:sessionId', async (req, res) => {
+// 会话历史接口（可选，需 JWT 认证）
+app.get('/api/chat/history/:sessionId', verifyPlatformJWT, async (req, res) => {
   const { sessionId } = req.params;
-  const messages = await getHistory(sessionId);
+  const messages = await getHistory(sessionId, req.merchant.id);
   res.json({ session_id: sessionId, messages, message_count: messages.length });
 });
 
-// 清除会话接口（可选）
-app.delete('/api/chat/sessions/:sessionId', async (req, res) => {
+// 清除会话接口（可选，需 JWT 认证）
+app.delete('/api/chat/sessions/:sessionId', verifyPlatformJWT, async (req, res) => {
   const { sessionId } = req.params;
-  await clearSession(sessionId);
+  await clearSession(sessionId, req.merchant.id);
   res.json({ status: 'ok', session_id: sessionId });
 });
 
-// 文档上传接口（可选）
+// 文档上传接口（可选，需 JWT 认证）
 const multer = require('multer');
 const upload = multer({ dest: '/tmp/uploads/' });
 
-app.post('/api/documents', upload.single('file'), async (req, res) => {
+app.post('/api/documents', verifyPlatformJWT, upload.single('file'), async (req, res) => {
   const { collection_name, merchant_id } = req.body;
   const file = req.file;
 
   try {
-    const result = await ingestDocument(file, collection_name, merchant_id);
+    const result = await ingestDocument(file, collection_name, merchant_id, req.merchant.apiKey);
     res.json({
       status: 'ok',
       document_id: result.id,
@@ -595,16 +803,21 @@ app.post('/api/documents', upload.single('file'), async (req, res) => {
 app.listen(3000, () => console.log('Agent running on port 3000'));
 ```
 
-### 6.2 Python (FastAPI) 示例
+### 7.2 Python (FastAPI) 示例
 
 ```python
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import jwt
 import time
 import json
+import asyncio
 
 app = FastAPI()
+
+# 与平台共享的 JWT 签名密钥
+SHARED_SECRET = os.environ.get("JWT_AGENT_SHARED_SECRET", "hczk-ai-platform-secret-key-2024-very-long-and-secure")
 
 class ChatRequest(BaseModel):
     message: str
@@ -612,6 +825,25 @@ class ChatRequest(BaseModel):
     merchant_id: str
     collection_name: str | None = None
     context: list | None = None
+
+# JWT 验证依赖
+def verify_platform_jwt(request: Request):
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="缺少认证信息")
+
+    token = auth_header[7:]
+    try:
+        payload = jwt.decode(token, SHARED_SECRET, algorithms=["HS256"], issuer="hczk-platform")
+        return {
+            "merchant_id": payload["merchant_id"],
+            "api_key": payload.get("apiKey"),
+            "is_trial": payload["merchant_id"] == "trial"
+        }
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="JWT 已过期")
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(status_code=401, detail=f"JWT 验证失败: {e}")
 
 @app.get("/api/health")
 async def health():
@@ -627,8 +859,10 @@ async def health():
     }
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest):
-    reply = await process_message(req.message, req.session_id, req.merchant_id)
+async def chat(req: ChatRequest, merchant=Depends(verify_platform_jwt)):
+    # merchant["merchant_id"] 做多租户隔离
+    # merchant["api_key"] 可用于调用平台知识库/模型服务
+    reply = await process_message(req.message, req.session_id, req.merchant_id, merchant["api_key"])
     return {
         "reply": reply,
         "session_id": req.session_id,
@@ -642,7 +876,7 @@ async def chat(req: ChatRequest):
     }
 
 @app.post("/api/chat/stream")
-async def chat_stream(req: ChatRequest):
+async def chat_stream(req: ChatRequest, merchant=Depends(verify_platform_jwt)):
     async def generate():
         yield f"data: {json.dumps({'type': 'thinking', 'content': '意图识别中...'})}\n\n"
         yield f"data: {json.dumps({'type': 'tool', 'content': '检索知识库', 'metadata': {'tool_name': 'retrieval'}})}\n\n"
@@ -673,22 +907,23 @@ async def agent_info():
     }
 
 @app.get("/api/chat/history/{session_id}")
-async def get_history(session_id: str):
-    messages = await load_history(session_id)
+async def get_history(session_id: str, merchant=Depends(verify_platform_jwt)):
+    messages = await load_history(session_id, merchant["merchant_id"])
     return {"session_id": session_id, "messages": messages, "message_count": len(messages)}
 
 @app.delete("/api/chat/sessions/{session_id}")
-async def clear_session(session_id: str):
-    await delete_session(session_id)
+async def clear_session(session_id: str, merchant=Depends(verify_platform_jwt)):
+    await delete_session(session_id, merchant["merchant_id"])
     return {"status": "ok", "session_id": session_id}
 
 @app.post("/api/documents")
 async def upload_document(
     file: UploadFile = File(...),
     collection_name: str = Form(...),
-    merchant_id: str = Form(None)
+    merchant_id: str = Form(None),
+    merchant=Depends(verify_platform_jwt)
 ):
-    result = await ingest(file, collection_name, merchant_id)
+    result = await ingest(file, collection_name, merchant_id, merchant["api_key"])
     return {
         "status": "ok",
         "document_id": result["id"],
@@ -699,7 +934,7 @@ async def upload_document(
 
 ---
 
-## 7. 兼容性说明
+## 8. 兼容性说明
 
 - 所有可选接口不影响必填接口的正常工作
 - 平台实现了完整的降级策略：
@@ -708,8 +943,12 @@ async def upload_document(
   - 不支持 `history_endpoint` → 会话历史和清除会话功能不可用
   - 不支持 `document_endpoint` → 文档上传功能不可用
 - 新增接口可随时补充配置，无需重新注册智能体
+- **JWT 鉴权**为强制要求，所有业务接口（对话、流式对话、会话历史、清除会话、文档上传）均需验证 JWT Token
+- **健康检测和元信息**接口仍兼容旧版 `auth_header` 认证方式（如已配置）
+- **无法接入 JWT 的旧版智能体**可使用自定义 `agent_endpoint` 和 `auth_header` 方式绑定，平台作为旧版端点转发
+- SSE 流式数据：智能体端必须确保每行以 `\n\n` 结尾，平台代理层会自动处理 `data:` 前缀的剥离和重新包装
 
-## 8. 常见问题
+## 9. 常见问题
 
 **Q: 健康检测接口响应慢会影响什么？**
 A: 平台设置 3 秒超时，超时即判定为离线。建议健康检测接口只做轻量级检查，不要执行耗时操作。
@@ -725,3 +964,24 @@ A: 注册时填写基础路径（如 `http://host:3000/api/chat/history`），�
 
 **Q: 多个智能体可以共用同一个运行时吗？**
 A: 可以。每个智能体注册时填写各自的接口地址即可，平台按接口地址独立检测和路由。
+
+**Q: JWT Token 过期了怎么办？**
+A: 平台每次调用智能体时都会生成新的 JWT Token，有效期1小时。智能体端只需验证 Token 有效性，无需处理刷新逻辑。
+
+**Q: 智能体端如何获取共享密钥？**
+A: 开发环境可直接使用与平台相同的密钥字符串；生产环境通过环境变量 `JWT_AGENT_SHARED_SECRET` 注入，与平台保持一致。
+
+**Q: 试用场景和正式场景的 JWT 有什么区别？**
+A: 试用场景下 `merchant_id` 为 `"trial"`，`apiKey` 为空；正式场景下 `merchant_id` 为实际商家 ID，`apiKey` 为绑定的平台 API Key。智能体端可通过 `merchant_id === "trial"` 区分。
+
+**Q: 智能体端验证 JWT 失败应该返回什么？**
+A: 返回 HTTP 401 状态码，响应体包含错误信息：`{"error": "JWT 验证失败: 具体原因"}`。平台会根据响应状态码进行相应处理。
+
+**Q: 注册时还需要填写认证头吗？**
+A: 新注册的智能体不需要。业务接口已统一使用 JWT 鉴权。`auth_header` 仅用于兼容旧版智能体的健康检测和元信息接口。如果旧版智能体需要自定义认证，仍可填写。
+
+**Q: 平台代理 SSE 时对数据有什么要求？**
+A: 智能体端和普通 SSE 服务端一样，输出 `data: {JSON}\n\n` 格式即可。平台代理层会自动剥离 `data:` 前缀，通过 Spring SseEmitter 重新包装后返回给前端。关键是每个事件要以 `\n\n` 结尾，否则多事件会粘连到一起。
+
+**Q: JWT Token 中的 apiKey 字段什么时候为空？**
+A: 两种场景：(1) 试用智能体时（`merchant_id` 为 `"trial"`）；(2) 旧版通用运行时转发时。智能体端应兼容 `apiKey` 为空的情况。
