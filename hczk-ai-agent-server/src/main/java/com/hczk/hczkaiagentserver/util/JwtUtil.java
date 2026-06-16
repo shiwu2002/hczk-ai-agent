@@ -2,6 +2,7 @@ package com.hczk.hczkaiagentserver.util;
 
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -9,6 +10,7 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
+@Slf4j
 @Component
 public class JwtUtil {
 
@@ -21,8 +23,24 @@ public class JwtUtil {
     @Value("${jwt.refresh-expiration}")
     private Long refreshExpiration;
 
+    /** 智能体调用JWT的共享签名密钥（与智能体端共享，用于验证平台签发的JWT） */
+    @Value("${jwt.agent.shared-secret:${jwt.secret}}")
+    private String agentSharedSecret;
+
+    /** 智能体调用JWT的过期时间（默认1小时） */
+    @Value("${jwt.agent.expiration:3600000}")
+    private Long agentTokenExpiration;
+
+    /** 智能体调用JWT的签发者标识 */
+    @Value("${jwt.agent.issuer:hczk-platform}")
+    private String agentTokenIssuer;
+
     private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private SecretKey getAgentSigningKey() {
+        return Keys.hmacShaKeyFor(agentSharedSecret.getBytes(StandardCharsets.UTF_8));
     }
 
     public String generateToken(String username, Integer role) {
@@ -48,6 +66,55 @@ public class JwtUtil {
                 .expiration(expiryDate)
                 .signWith(getSigningKey())
                 .compact();
+    }
+
+    /**
+     * 生成智能体调用JWT
+     * 用于平台调用智能体时传递鉴权信息，智能体端通过共享密钥验证JWT
+     *
+     * @param merchantId 商家ID
+     * @param apiKey     平台API Key（访问知识库和模型）
+     * @return JWT字符串
+     */
+    public String generateAgentToken(String merchantId, String apiKey) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + agentTokenExpiration);
+
+        var builder = Jwts.builder()
+                .subject("merchant_" + merchantId)
+                .issuer(agentTokenIssuer)
+                .issuedAt(now)
+                .expiration(expiryDate)
+                .claim("merchant_id", merchantId)
+                .claim("scope", "chat");
+
+        if (apiKey != null && !apiKey.trim().isEmpty()) {
+            builder.claim("apiKey", apiKey);
+        }
+
+        return builder
+                .signWith(getAgentSigningKey())
+                .compact();
+    }
+
+    /**
+     * 验证智能体调用JWT的有效性
+     * 智能体端使用此方法验证平台签发的JWT
+     *
+     * @param token JWT字符串
+     * @return 解析后的Claims，验证失败返回null
+     */
+    public Claims parseAgentToken(String token) {
+        try {
+            return Jwts.parser()
+                    .verifyWith(getAgentSigningKey())
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+        } catch (Exception e) {
+            log.warn("智能体JWT验证失败: {}", e.getMessage());
+            return null;
+        }
     }
 
     public String getUsernameFromToken(String token) {

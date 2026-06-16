@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue';
-import { useApiStore } from '@/stores/api';
+import { useApiStore, API_BASE } from '@/stores/api';
+import { useAuthStore } from '@/stores/auth';
 import {
   Bot, Plus, Search, Trash2, Settings2, Power, X, RefreshCw, Wifi, WifiOff,
   Activity, Zap, Heart, MessageSquare, FileUp, Info, Radio, History,
@@ -9,6 +10,7 @@ import {
 } from 'lucide-vue-next';
 
 const api = useApiStore();
+const auth = useAuthStore();
 const loading = ref(false);
 const showAddModal = ref(false);
 const searchQuery = ref('');
@@ -421,15 +423,15 @@ async function sendTrialMessage(agent) {
   state.loading = true;
 
   try {
-    const endpoint = agent.streamEndpoint || agent.chatEndpoint;
-    const useStream = !!agent.streamEndpoint && getAgentInfo(agent.id)?.capabilities?.streaming;
+    // 统一通过后端 /chat/completions 接口代理，避免前端跨域问题
+    const useStream = getAgentInfo(agent.id)?.capabilities?.streaming ?? !!agent.streamEndpoint;
 
     if (useStream) {
-      // 流式请求
-      await sendStreamRequest(agent, state, userMessage, endpoint);
+      // 流式请求（通过后端代理）
+      await sendStreamRequest(agent, state, userMessage);
     } else {
-      // 普通请求
-      await sendNormalRequest(agent, state, userMessage, endpoint);
+      // 普通请求（通过后端代理）
+      await sendNormalRequest(agent, state, userMessage);
     }
   } catch (err) {
     state.messages.push({
@@ -445,19 +447,19 @@ async function sendTrialMessage(agent) {
   }
 }
 
-async function sendStreamRequest(agent, state, message, endpoint) {
+async function sendStreamRequest(agent, state, message) {
+  // 通过后端 /chat/completions 接口进行流式请求（服务端代理）
+  const endpoint = `${API_BASE}/chat/completions`;
+
   const headers = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${api.token || ''}`
+    'Authorization': `Bearer ${auth.token || ''}`
   };
-  if (agent.authHeader) {
-    headers['X-Agent-Auth'] = agent.authHeader;
-  }
 
   const body = {
+    agentId: agent.id,
     message,
-    session_id: state.sessionId || `trial_${agent.id}_${Date.now()}`,
-    merchant_id: 'trial'
+    stream: true
   };
 
   // 创建占位消息用于流式更新
@@ -476,7 +478,10 @@ async function sendStreamRequest(agent, state, message, endpoint) {
       body: JSON.stringify(body)
     });
 
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}`);
+    }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -499,9 +504,6 @@ async function sendStreamRequest(agent, state, message, endpoint) {
             if (parsed.content) {
               state.messages[assistantMsgIndex].content += parsed.content;
             }
-            if (parsed.session_id) {
-              state.sessionId = parsed.session_id;
-            }
           } catch (e) {
             // 非JSON数据，直接追加文本
             state.messages[assistantMsgIndex].content += data;
@@ -521,18 +523,19 @@ async function sendStreamRequest(agent, state, message, endpoint) {
   }
 }
 
-async function sendNormalRequest(agent, state, message, endpoint) {
+async function sendNormalRequest(agent, state, message) {
+  // 通过后端 /chat/completions 接口进行普通请求（服务端代理）
+  const endpoint = `${API_BASE}/chat/completions`;
+
   const headers = {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${auth.token || ''}`
   };
-  if (agent.authHeader) {
-    headers['Authorization'] = agent.authHeader;
-  }
 
   const body = {
+    agentId: agent.id,
     message,
-    session_id: state.sessionId || `trial_${agent.id}_${Date.now()}`,
-    merchant_id: 'trial'
+    stream: false
   };
 
   const response = await fetch(endpoint, {
@@ -541,7 +544,10 @@ async function sendNormalRequest(agent, state, message, endpoint) {
     body: JSON.stringify(body)
   });
 
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `HTTP ${response.status}`);
+  }
 
   let result;
   const contentType = response.headers.get('content-type') || '';
@@ -556,10 +562,6 @@ async function sendNormalRequest(agent, state, message, endpoint) {
     content: result?.content || result?.reply || result?.message || JSON.stringify(result),
     timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   });
-
-  if (result?.session_id) {
-    state.sessionId = result.session_id;
-  }
 }
 
 function clearTrialChat(agentId) {
