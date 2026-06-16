@@ -4,14 +4,18 @@ import com.hczk.hczkaiagentserver.dto.ChatRequest;
 import com.hczk.hczkaiagentserver.entity.Agent;
 import com.hczk.hczkaiagentserver.entity.ApiKey;
 import com.hczk.hczkaiagentserver.entity.MerchantAgentBinding;
+import com.hczk.hczkaiagentserver.entity.Skill;
 import com.hczk.hczkaiagentserver.service.AgentService;
 import com.hczk.hczkaiagentserver.service.ApiKeyService;
 import com.hczk.hczkaiagentserver.service.ChatService;
 import com.hczk.hczkaiagentserver.service.MerchantAgentBindingService;
+import com.hczk.hczkaiagentserver.service.SkillService;
+import com.hczk.hczkaiagentserver.service.ToolDefinitionService;
 import com.hczk.hczkaiagentserver.util.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
@@ -23,6 +27,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -46,9 +51,14 @@ public class ChatController {
     private final ApiKeyService apiKeyService;
     private final AgentService agentService;
     private final MerchantAgentBindingService bindingService;
+    private final SkillService skillService;
+    private final ToolDefinitionService toolDefinitionService;
     private final JwtUtil jwtUtil;
     private final RestTemplate restTemplate = new RestTemplate();
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
+
+    @Value("${app.platform-url:http://localhost:8080}")
+    private String platformBaseUrl;
 
     /**
      * 内部聊天接口（管理后台/前端使用）
@@ -121,12 +131,14 @@ public class ChatController {
                 String agentToken = jwtUtil.generateAgentToken("trial", null);
                 conn.setRequestProperty("Authorization", "Bearer " + agentToken);
 
-                // 发送请求体（使用 Jackson 序列化为合法 JSON）
-                Map<String, String> bodyMap = Map.of(
-                    "message", message,
-                    "session_id", UUID.randomUUID().toString(),
-                    "merchant_id", "trial"
-                );
+                // 发送请求体（使用 Jackson 序列化为合法 JSON，包含 tools 列表）
+                Map<String, Object> bodyMap = new java.util.HashMap<>();
+                bodyMap.put("message", message);
+                bodyMap.put("session_id", UUID.randomUUID().toString());
+                bodyMap.put("merchant_id", "trial");
+                // 传递平台注册的 MCP 工具列表，供智能体做 function calling
+                bodyMap.put("available_skills", getAvailableSkills());
+                bodyMap.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");;
                 String body = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
                 try (OutputStream os = conn.getOutputStream()) {
                     os.write(body.getBytes());
@@ -179,11 +191,13 @@ public class ChatController {
             String agentToken = jwtUtil.generateAgentToken("trial", null);
             headers.set("Authorization", "Bearer " + agentToken);
 
-            Map<String, Object> body = Map.of(
-                "merchant_id", "trial",
-                "message", message,
-                "session_id", UUID.randomUUID().toString()
-            );
+            Map<String, Object> body = new java.util.HashMap<>();
+            body.put("merchant_id", "trial");
+            body.put("message", message);
+            body.put("session_id", UUID.randomUUID().toString());
+            // 传递平台注册的 MCP 工具列表
+            body.put("available_skills", getAvailableSkills());
+            body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");;
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
@@ -441,6 +455,9 @@ public class ChatController {
             body.put("merchant_id", String.valueOf(userId));
             body.put("message", message);
             body.put("session_id", sessionId);
+            // 传递平台注册的 MCP 工具列表，供智能体做 function calling
+            body.put("available_skills", getAvailableSkills());
+            body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");;
             if (originalRequest != null) {
                 for (Map.Entry<String, Object> entry : originalRequest.entrySet()) {
                     if (!body.containsKey(entry.getKey())) {
@@ -490,6 +507,9 @@ public class ChatController {
                 // 构建请求体
                 Map<String, Object> body = new java.util.HashMap<>();
                 body.put("merchant_id", String.valueOf(userId));
+                // 传递平台注册的 MCP 工具列表
+                body.put("available_skills", getAvailableSkills());
+            body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");;
                 if (originalRequest != null) {
                     body.putAll(originalRequest);
                 }
@@ -576,6 +596,8 @@ public class ChatController {
             body.put("message", message);
             body.put("session_id", sessionId);
             body.put("skill_id", skillId);
+            body.put("available_skills", getAvailableSkills());
+            body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");;
             if (collectionName != null && !collectionName.isEmpty()) {
                 body.put("collection_name", collectionName);
             }
@@ -606,11 +628,12 @@ public class ChatController {
             String agentToken = jwtUtil.generateAgentToken(merchantId, apiKey);
             headers.set("Authorization", "Bearer " + agentToken);
 
-            Map<String, Object> body = Map.of(
-                "merchant_id", String.valueOf(userId),
-                "message", message,
-                "session_id", sessionId
-            );
+            Map<String, Object> body = new java.util.HashMap<>();
+            body.put("merchant_id", String.valueOf(userId));
+            body.put("message", message);
+            body.put("session_id", sessionId);
+            body.put("available_skills", getAvailableSkills());
+            body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");;
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
             @SuppressWarnings("unchecked")
@@ -621,5 +644,22 @@ public class ChatController {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(Map.of("error", "转发到定制智能体失败: " + e.getMessage()));
         }
+    }
+
+    /** 构建工具组目录列表（传递给智能体的初始化目录） */
+    private List<Map<String, Object>> getAvailableSkills() {
+        List<Skill> skills = skillService.getAllSkillsWithToolCount();
+        return skills.stream()
+                .filter(s -> "active".equals(s.getStatus()))
+                .map(s -> {
+                    Map<String, Object> g = new java.util.LinkedHashMap<>();
+                    g.put("name", s.getName());
+                    g.put("display_name", s.getDisplayName());
+                    g.put("description", s.getDescription());
+                    g.put("category", s.getCategory());
+                    g.put("tool_count", s.getToolCount());
+                    return g;
+                })
+                .collect(Collectors.toList());
     }
 }

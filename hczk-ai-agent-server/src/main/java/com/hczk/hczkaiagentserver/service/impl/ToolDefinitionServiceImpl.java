@@ -1,0 +1,196 @@
+package com.hczk.hczkaiagentserver.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hczk.hczkaiagentserver.entity.Skill;
+import com.hczk.hczkaiagentserver.entity.ToolDefinition;
+import com.hczk.hczkaiagentserver.mapper.SkillMapper;
+import com.hczk.hczkaiagentserver.mapper.ToolDefinitionMapper;
+import com.hczk.hczkaiagentserver.service.RedisCacheService;
+import com.hczk.hczkaiagentserver.service.ToolDefinitionService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.*;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class ToolDefinitionServiceImpl implements ToolDefinitionService {
+
+    private final ToolDefinitionMapper toolMapper;
+    private final SkillMapper skillMapper;
+    private final RedisCacheService redisCache;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Override
+    @Transactional
+    public ToolDefinition create(ToolDefinition tool) {
+        if (tool.getType() == null) tool.setType("api");
+        if (tool.getStatus() == null) tool.setStatus("active");
+        toolMapper.insert(tool);
+        redisCache.invalidateToolsCache();
+        log.info("创建工具: id={}, name={}, skillId={}", tool.getId(), tool.getName(), tool.getSkillId());
+        return tool;
+    }
+
+    @Override
+    @Transactional
+    public ToolDefinition update(Long id, ToolDefinition tool) {
+        ToolDefinition existing = toolMapper.selectById(id);
+        if (existing == null) throw new RuntimeException("工具不存在: " + id);
+        tool.setId(id);
+        toolMapper.updateById(tool);
+        redisCache.invalidateToolsCache();
+        log.info("更新工具: id={}", id);
+        return toolMapper.selectById(id);
+    }
+
+    @Override
+    @Transactional
+    public void delete(Long id) {
+        ToolDefinition tool = toolMapper.selectById(id);
+        if (tool == null) throw new RuntimeException("工具不存在: " + id);
+        if ("builtin".equals(tool.getType())) throw new RuntimeException("内置工具不可删除");
+        toolMapper.deleteById(id);
+        redisCache.invalidateToolsCache();
+        log.info("删除工具: id={}", id);
+    }
+
+    @Override
+    public ToolDefinition getById(Long id) {
+        return toolMapper.selectById(id);
+    }
+
+    @Override
+    public ToolDefinition getByName(String name) {
+        QueryWrapper<ToolDefinition> qw = new QueryWrapper<>();
+        qw.eq("name", name);
+        return toolMapper.selectOne(qw);
+    }
+
+    @Override
+    public List<ToolDefinition> getBySkillId(String skillId) {
+        String cacheKey = RedisCacheService.toolsKey("skill:" + skillId);
+        String cached = redisCache.getCachedToolsJson(cacheKey);
+        if (cached != null) {
+            try {
+                return objectMapper.readValue(cached,
+                        objectMapper.getTypeFactory().constructCollectionType(List.class, ToolDefinition.class));
+            } catch (Exception e) {
+                log.debug("工具缓存反序列化失败，回源查询: skillId={}", skillId);
+            }
+        }
+        QueryWrapper<ToolDefinition> qw = new QueryWrapper<>();
+        qw.eq("skill_id", skillId).orderByAsc("id");
+        List<ToolDefinition> list = toolMapper.selectList(qw);
+        try {
+            redisCache.cacheToolsJson(cacheKey, objectMapper.writeValueAsString(list));
+        } catch (Exception ignored) {}
+        return list;
+    }
+
+    @Override
+    public List<ToolDefinition> getActiveBySkillId(String skillId) {
+        String cacheKey = RedisCacheService.toolsKey("active_skill:" + skillId);
+        String cached = redisCache.getCachedToolsJson(cacheKey);
+        if (cached != null) {
+            try {
+                return objectMapper.readValue(cached,
+                        objectMapper.getTypeFactory().constructCollectionType(List.class, ToolDefinition.class));
+            } catch (Exception e) {
+                log.debug("缓存反序列化失败，回源: skillId={}", skillId);
+            }
+        }
+        QueryWrapper<ToolDefinition> qw = new QueryWrapper<>();
+        qw.eq("skill_id", skillId).eq("status", "active").orderByAsc("id");
+        List<ToolDefinition> list = toolMapper.selectList(qw);
+        try {
+            redisCache.cacheToolsJson(cacheKey, objectMapper.writeValueAsString(list));
+        } catch (Exception ignored) {}
+        return list;
+    }
+
+    @Override
+    public List<ToolDefinition> getAllActive() {
+        QueryWrapper<ToolDefinition> qw = new QueryWrapper<>();
+        qw.eq("status", "active").orderByAsc("skill_id").orderByAsc("id");
+        return toolMapper.selectList(qw);
+    }
+
+    @Override
+    @Transactional
+    public ToolDefinition toggleStatus(Long id) {
+        ToolDefinition tool = toolMapper.selectById(id);
+        if (tool == null) throw new RuntimeException("工具不存在: " + id);
+        tool.setStatus("active".equals(tool.getStatus()) ? "inactive" : "active");
+        toolMapper.updateById(tool);
+        redisCache.invalidateToolsCache();
+        return tool;
+    }
+
+    @Override
+    public List<Map<String, Object>> getActiveToolDefinitions(String platformBaseUrl) {
+        return convertToolsToLLMFormat(getAllActive(), platformBaseUrl);
+    }
+
+    @Override
+    public List<Map<String, Object>> getActiveToolDefinitionsForGroup(String skillName, String platformBaseUrl) {
+        String cacheKey = RedisCacheService.toolsKey("llm_group:" + skillName);
+        String cached = redisCache.getCachedToolsJson(cacheKey);
+        if (cached != null) {
+            try {
+                return objectMapper.readValue(cached,
+                        objectMapper.getTypeFactory().constructCollectionType(List.class, Map.class));
+            } catch (Exception e) {
+                log.debug("LLM工具缓存反序列化失败，回源: skillName={}", skillName);
+            }
+        }
+
+        QueryWrapper<Skill> sq = new QueryWrapper<>();
+        sq.eq("name", skillName).eq("status", "active");
+        Skill skill = skillMapper.selectOne(sq);
+        if (skill == null) return List.of();
+
+        List<Map<String, Object>> tools = convertToolsToLLMFormat(getActiveBySkillId(skill.getId()), platformBaseUrl);
+        try {
+            redisCache.cacheToolsJson(cacheKey, objectMapper.writeValueAsString(tools));
+        } catch (Exception ignored) {}
+        return tools;
+    }
+
+    /** 将 ToolDefinition 列表转换为 LLM function_call 格式 */
+    private List<Map<String, Object>> convertToolsToLLMFormat(List<ToolDefinition> toolsList, String platformBaseUrl) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (ToolDefinition tool : toolsList) {
+            Map<String, Object> def = new LinkedHashMap<>();
+            def.put("type", "function");
+
+            Map<String, Object> function = new LinkedHashMap<>();
+            function.put("name", tool.getName());
+            function.put("description", tool.getDescription());
+
+            if (tool.getInputSchema() != null && !tool.getInputSchema().trim().isEmpty()) {
+                try {
+                    function.put("parameters", objectMapper.readValue(tool.getInputSchema(), Object.class));
+                } catch (Exception e) {
+                    log.warn("工具 {} input_schema 解析失败: {}", tool.getName(), e.getMessage());
+                }
+            }
+
+            def.put("function", function);
+
+            String executionEndpoint;
+            if ("api".equals(tool.getType()) && tool.getEndpoint() != null && !tool.getEndpoint().isBlank()) {
+                executionEndpoint = tool.getEndpoint();
+            } else {
+                executionEndpoint = platformBaseUrl + "/api/tools/execute";
+            }
+            def.put("endpoint", executionEndpoint);
+            result.add(def);
+        }
+        return result;
+    }
+}

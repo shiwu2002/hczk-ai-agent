@@ -4,13 +4,16 @@ import com.hczk.hczkaiagentserver.common.Result;
 import com.hczk.hczkaiagentserver.entity.Agent;
 import com.hczk.hczkaiagentserver.entity.MerchantAgentBinding;
 import com.hczk.hczkaiagentserver.entity.Skill;
+import com.hczk.hczkaiagentserver.entity.ToolDefinition;
 import com.hczk.hczkaiagentserver.service.AgentService;
 import com.hczk.hczkaiagentserver.service.MerchantAgentBindingService;
 import com.hczk.hczkaiagentserver.service.SkillService;
+import com.hczk.hczkaiagentserver.service.ToolDefinitionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/platform")
@@ -19,11 +22,14 @@ import java.util.List;
 public class PlatformController {
 
     private final SkillService skillService;
+    private final ToolDefinitionService toolDefinitionService;
     private final MerchantAgentBindingService bindingService;
     private final AgentService agentService;
 
-    public PlatformController(SkillService skillService, MerchantAgentBindingService bindingService, AgentService agentService) {
+    public PlatformController(SkillService skillService, ToolDefinitionService toolDefinitionService,
+                              MerchantAgentBindingService bindingService, AgentService agentService) {
         this.skillService = skillService;
+        this.toolDefinitionService = toolDefinitionService;
         this.bindingService = bindingService;
         this.agentService = agentService;
     }
@@ -61,37 +67,111 @@ public class PlatformController {
         return Result.success(agentService.toggleStatus(id));
     }
 
-    // ========== Skill 管理 ==========
+    // ========== 工具组管理 ==========
 
     @PostMapping("/skills")
     public Result<Skill> createSkill(@RequestBody Skill skill) {
-        return Result.success(skillService.createSkill(skill));
+        try {
+            return Result.success(skillService.createSkill(skill));
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
     }
 
     @GetMapping("/skills")
     public Result<List<Skill>> getAllSkills() {
-        return Result.success(skillService.getAllSkills());
+        return Result.success(skillService.getAllSkillsWithToolCount());
     }
 
     @GetMapping("/skills/{skillId}")
     public Result<Skill> getSkillById(@PathVariable String skillId) {
         Skill skill = skillService.getSkillById(skillId);
-        if (skill == null) {
-            return Result.error("Skill 不存在");
-        }
+        if (skill == null) return Result.error("工具组不存在");
         return Result.success(skill);
     }
 
     @PutMapping("/skills/{skillId}")
     public Result<Skill> updateSkill(@PathVariable String skillId, @RequestBody Skill skill) {
-        return Result.success(skillService.updateSkill(skillId, skill));
+        try {
+            return Result.success(skillService.updateSkill(skillId, skill));
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
     }
 
     @DeleteMapping("/skills/{skillId}")
     public Result<Void> deleteSkill(@PathVariable String skillId) {
-        skillService.deleteSkill(skillId);
-        return Result.success();
+        try {
+            skillService.deleteSkill(skillId);
+            return Result.success();
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
     }
+
+    @PostMapping("/skills/{skillId}/toggle")
+    public Result<Skill> toggleSkillStatus(@PathVariable String skillId) {
+        try {
+            return Result.success(skillService.toggleStatus(skillId));
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /** 获取工具组下的所有工具 */
+    @GetMapping("/skills/{skillId}/tools")
+    public Result<List<ToolDefinition>> getSkillTools(@PathVariable String skillId) {
+        return Result.success(toolDefinitionService.getBySkillId(skillId));
+    }
+
+    // ========== 工具管理 ==========
+
+    @PostMapping("/tools")
+    public Result<ToolDefinition> createTool(@RequestBody ToolDefinition tool) {
+        try {
+            return Result.success(toolDefinitionService.create(tool));
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    @PutMapping("/tools/{toolId}")
+    public Result<ToolDefinition> updateTool(@PathVariable Long toolId, @RequestBody ToolDefinition tool) {
+        try {
+            return Result.success(toolDefinitionService.update(toolId, tool));
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    @DeleteMapping("/tools/{toolId}")
+    public Result<Void> deleteTool(@PathVariable Long toolId) {
+        try {
+            toolDefinitionService.delete(toolId);
+            return Result.success();
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    @PostMapping("/tools/{toolId}/toggle")
+    public Result<ToolDefinition> toggleToolStatus(@PathVariable Long toolId) {
+        try {
+            return Result.success(toolDefinitionService.toggleStatus(toolId));
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /** 获取所有启用的工具定义（LLM 格式） */
+    @GetMapping("/tools/definitions")
+    public Result<List<Map<String, Object>>> getActiveToolDefinitions(
+            @RequestHeader(value = "Host", required = false) String host) {
+        String baseUrl = "http://" + (host != null ? host : "localhost:8080");
+        return Result.success(toolDefinitionService.getActiveToolDefinitions(baseUrl));
+    }
+
+    // ========== 商家绑定管理 ==========
 
     @PostMapping("/bindings")
     public Result<MerchantAgentBinding> createBinding(@RequestBody MerchantAgentBinding binding) {
