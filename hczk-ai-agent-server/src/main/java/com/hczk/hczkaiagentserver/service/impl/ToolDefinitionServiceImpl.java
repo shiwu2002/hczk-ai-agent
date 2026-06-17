@@ -7,6 +7,7 @@ import com.hczk.hczkaiagentserver.entity.ToolDefinition;
 import com.hczk.hczkaiagentserver.mapper.SkillMapper;
 import com.hczk.hczkaiagentserver.mapper.ToolDefinitionMapper;
 import com.hczk.hczkaiagentserver.service.RedisCacheService;
+import com.hczk.hczkaiagentserver.service.SkillService;
 import com.hczk.hczkaiagentserver.service.ToolDefinitionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
 
     private final ToolDefinitionMapper toolMapper;
     private final SkillMapper skillMapper;
+    private final SkillService skillService;
     private final RedisCacheService redisCache;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -151,6 +153,42 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
             redisCache.cacheJsonWithRandomTTL(cacheKey, objectMapper.writeValueAsString(tools));
         } catch (Exception ignored) {}
         return tools;
+    }
+
+    // ===== v10 新增：用户可见性相关 =====
+
+    @Override
+    public List<Map<String, Object>> getAccessibleToolDefinitionsForUser(String userId, String platformBaseUrl) {
+        // 获取用户可访问的所有 skill（public + bound private）
+        List<Skill> accessible = skillService.getAccessibleSkillsWithToolCount(userId);
+        List<ToolDefinition> tools = new ArrayList<>();
+        for (Skill skill : accessible) {
+            if (!"active".equals(skill.getStatus())) continue;
+            tools.addAll(getActiveBySkillId(skill.getId()));
+        }
+        return convertToolsToLLMFormat(tools, platformBaseUrl);
+    }
+
+    @Override
+    public List<Map<String, Object>> getAccessibleToolDefinitionsForGroup(String userId, String skillName, String platformBaseUrl) {
+        Skill skill = skillService.getSkillByName(skillName);
+        if (skill == null) return List.of();
+        if (!"active".equals(skill.getStatus())) return List.of();
+        // 权限校验
+        if (!skillService.canUserAccess(userId, skill.getId())) {
+            log.warn("用户无权访问工具组: userId={}, skillName={}, skillId={}", userId, skillName, skill.getId());
+            return List.of();
+        }
+        return convertToolsToLLMFormat(getActiveBySkillId(skill.getId()), platformBaseUrl);
+    }
+
+    @Override
+    public String getSkillIdByToolName(String toolName) {
+        if (toolName == null || toolName.isBlank()) return null;
+        QueryWrapper<ToolDefinition> qw = new QueryWrapper<>();
+        qw.eq("name", toolName).last("LIMIT 1");
+        ToolDefinition tool = toolMapper.selectOne(qw);
+        return tool != null ? tool.getSkillId() : null;
     }
 
     /** 将 ToolDefinition 列表转换为 LLM function_call 格式 */

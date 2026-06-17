@@ -1,11 +1,12 @@
 <script setup>import { ref, onMounted, computed } from 'vue';
 import { useApiStore } from '@/stores/api';
-import { Plus, Search, Trash2, Settings2, Power, X, Wrench, Lock, Unlock, ChevronDown, ChevronRight, Database, Globe } from 'lucide-vue-next';
+import { Plus, Search, Trash2, Settings2, Power, X, Wrench, Lock, Unlock, ChevronDown, ChevronRight, Database, Globe, Eye, EyeOff, Users } from 'lucide-vue-next';
 
 const api = useApiStore();
 const loading = ref(false);
 const showSkillModal = ref(false);
 const showToolModal = ref(false);
+const showBindingModal = ref(false);
 const searchQuery = ref('');
 const editingSkill = ref(null);
 const editingTool = ref(null);
@@ -13,7 +14,15 @@ const currentSkillId = ref(null); // tool 创建时所属的工具组
 const expandedSkills = ref({});
 const skills = ref([]);
 
-const newSkill = ref({ name: '', displayName: '', category: 'custom', icon: 'Wrench', version: '1.0.0', description: '', status: 'active' });
+// 绑定管理相关
+const bindingSkill = ref(null);
+const bindingUserId = ref('');
+const bindings = ref([]); // 当前 skill 的绑定用户列表（userId 字符串数组）
+const bindingUsers = ref([]); // 所有用户列表（用于下拉选择）
+const bindingUsersLoading = ref(false);
+const bindingSearch = ref(''); // 用户搜索关键词
+
+const newSkill = ref({ name: '', displayName: '', category: 'custom', icon: 'Wrench', version: '1.0.0', description: '', status: 'active', visibility: 'public' });
 const newTool = ref({ skillId: '', name: '', displayName: '', description: '', inputSchema: '{"type":"object","properties":{},"required":[]}', endpoint: '', type: 'builtin', status: 'active' });
 
 onMounted(loadData);
@@ -63,12 +72,73 @@ async function toggleSkill(skill) {
   const res = await api.post(`/platform/skills/${skill.id}/toggle`);
   if (res.code === 200) skill.status = res.data.status;
 }
+async function toggleVisibility(skill) {
+  const next = skill.visibility === 'public' ? 'private' : 'public';
+  const res = await api.put(`/platform/skills/${skill.id}/visibility?visibility=${next}`);
+  if (res.code === 200) skill.visibility = res.data.visibility;
+  else alert(res.message || '失败');
+}
 function editSkill(skill) {
   editingSkill.value = skill;
-  newSkill.value = { name: skill.name, displayName: skill.displayName, category: skill.category, icon: skill.icon || 'Wrench', version: skill.version, description: skill.description || '', status: skill.status };
+  newSkill.value = { name: skill.name, displayName: skill.displayName, category: skill.category, icon: skill.icon || 'Wrench', version: skill.version, description: skill.description || '', status: skill.status, visibility: skill.visibility || 'public' };
   showSkillModal.value = true;
 }
-function closeSkillModal() { showSkillModal.value = false; editingSkill.value = null; newSkill.value = { name: '', displayName: '', category: 'custom', icon: 'Wrench', version: '1.0.0', description: '', status: 'active' }; }
+function closeSkillModal() { showSkillModal.value = false; editingSkill.value = null; newSkill.value = { name: '', displayName: '', category: 'custom', icon: 'Wrench', version: '1.0.0', description: '', status: 'active', visibility: 'public' }; }
+
+// ===== 用户绑定管理 =====
+async function openBindingModal(skill) {
+  bindingSkill.value = skill;
+  bindingUserId.value = '';
+  bindingSearch.value = '';
+  showBindingModal.value = true;
+  await Promise.all([loadBindings(skill.id), loadBindingUsers()]);
+}
+async function loadBindings(skillId) {
+  const res = await api.get(`/platform/skill-bindings/skill/${skillId}`);
+  if (res.code === 200) bindings.value = res.data || [];
+  else bindings.value = [];
+}
+async function loadBindingUsers() {
+  bindingUsersLoading.value = true;
+  const res = await api.get('/users');
+  if (res.code === 200) bindingUsers.value = res.data || [];
+  bindingUsersLoading.value = false;
+}
+// 可选用户：排除已绑定的，支持搜索过滤
+const availableUsers = computed(() => {
+  const boundSet = new Set(bindings.value);
+  let list = bindingUsers.value.filter(u => !boundSet.has(u.userId));
+  if (bindingSearch.value.trim()) {
+    const kw = bindingSearch.value.trim().toLowerCase();
+    list = list.filter(u =>
+      (u.username || '').toLowerCase().includes(kw) ||
+      (u.userId || '').toLowerCase().includes(kw) ||
+      (u.companyName || '').toLowerCase().includes(kw) ||
+      (u.email || '').toLowerCase().includes(kw)
+    );
+  }
+  return list;
+});
+// 已绑定用户详情（从 bindingUsers 中查找）
+function getBoundUserDetail(userId) {
+  return bindingUsers.value.find(u => u.userId === userId);
+}
+async function addBinding() {
+  if (!bindingUserId.value) { alert('请选择用户'); return; }
+  const res = await api.post('/platform/skill-bindings', { user_id: bindingUserId.value, skill_id: bindingSkill.value.id });
+  if (res.code === 200) {
+    bindingUserId.value = '';
+    bindingSearch.value = '';
+    await loadBindings(bindingSkill.value.id);
+  } else alert(res.message || '失败');
+}
+async function removeBinding(userId) {
+  if (!confirm('解除该用户绑定？')) return;
+  const res = await api.del(`/platform/skill-bindings?userId=${userId}&skillId=${bindingSkill.value.id}`);
+  if (res.code === 200) await loadBindings(bindingSkill.value.id);
+  else alert(res.message || '失败');
+}
+function closeBindingModal() { showBindingModal.value = false; bindingSkill.value = null; bindings.value = []; bindingUsers.value = []; }
 
 // ===== 工具 CRUD =====
 function openCreateTool(skillId) {
@@ -166,12 +236,25 @@ function formatSchemaParams(schema) {
               <span class="px-2 py-0.5 text-xs rounded-full" :class="skill.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400'">
                 {{ skill.status === 'active' ? '启用' : '停用' }}
               </span>
+              <span class="px-2 py-0.5 text-xs rounded-full flex items-center gap-0.5"
+                    :class="skill.visibility === 'private' ? 'bg-amber-500/10 text-amber-400' : 'bg-blue-500/10 text-blue-400'">
+                <EyeOff v-if="skill.visibility === 'private'" class="w-2.5 h-2.5" />
+                <Eye v-else class="w-2.5 h-2.5" />
+                {{ skill.visibility === 'private' ? '私有' : '公开' }}
+              </span>
               <span class="text-xs text-slate-600">v{{ skill.version }}</span>
             </div>
             <p class="text-sm text-slate-500 mt-0.5">{{ skill.description }}</p>
           </div>
           <span class="text-sm text-slate-500 flex-shrink-0">{{ skill.toolCount || 0 }} 个工具</span>
           <div class="flex items-center gap-1 flex-shrink-0" @click.stop>
+            <button @click="toggleVisibility(skill)" class="p-1.5 rounded hover:bg-white/5 text-slate-400" :title="skill.visibility === 'public' ? '设为私有' : '设为公开'">
+              <EyeOff v-if="skill.visibility === 'public'" class="w-3.5 h-3.5" />
+              <Eye v-else class="w-3.5 h-3.5" />
+            </button>
+            <button v-if="skill.visibility === 'private'" @click="openBindingModal(skill)" class="p-1.5 rounded hover:bg-white/5 text-slate-400" title="管理用户绑定">
+              <Users class="w-3.5 h-3.5" />
+            </button>
             <button @click="toggleSkill(skill)" class="p-1.5 rounded hover:bg-white/5 text-slate-400"><Power class="w-3.5 h-3.5" /></button>
             <button @click="editSkill(skill)" class="p-1.5 rounded hover:bg-white/5 text-slate-400"><Settings2 class="w-3.5 h-3.5" /></button>
             <button @click="deleteSkill(skill.id)" class="p-1.5 rounded hover:bg-white/5 text-red-400"><Trash2 class="w-3.5 h-3.5" /></button>
@@ -245,10 +328,69 @@ function formatSchemaParams(schema) {
               </select>
             </div>
           </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-2">可见性</label>
+            <select v-model="newSkill.visibility" class="input-field">
+              <option value="public">公开（所有智能体可调用）</option>
+              <option value="private">私有（仅绑定用户可调用）</option>
+            </select>
+            <p class="text-xs text-slate-500 mt-1">私有工具组需在创建后通过"用户绑定"按钮绑定到指定用户</p>
+          </div>
         </div>
         <div class="flex gap-3 mt-6">
           <button @click="closeSkillModal()" class="btn-secondary flex-1">取消</button>
           <button @click="saveSkill" class="btn-primary flex-1">{{ editingSkill ? '保存' : '创建' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 用户绑定管理弹窗 -->
+    <div v-if="showBindingModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div class="glass-card w-full max-w-lg p-6 animate-slide-up">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-xl font-bold text-white">用户绑定管理</h2>
+            <p class="text-sm text-slate-400 mt-1">{{ bindingSkill?.displayName || bindingSkill?.name }}（私有工具组）</p>
+          </div>
+          <button @click="closeBindingModal()" class="p-1 text-slate-400 hover:text-white"><X class="w-5 h-5" /></button>
+        </div>
+        <div class="space-y-4">
+          <!-- 添加用户绑定 -->
+          <div class="p-4 rounded-lg bg-white/5 border border-white/10 space-y-3">
+            <label class="block text-sm font-medium text-slate-200">添加用户绑定</label>
+            <div class="flex gap-2">
+              <select v-model="bindingUserId" class="input-field flex-1" :disabled="bindingUsersLoading">
+                <option value="" disabled>-- 请选择用户 --</option>
+                <option v-for="u in availableUsers" :key="u.userId" :value="u.userId">
+                  {{ u.username }}（{{ u.companyName || u.email }}）ID: {{ u.userId }}
+                </option>
+              </select>
+              <button @click="addBinding" :disabled="!bindingUserId" class="btn-primary flex items-center gap-1"><Plus class="w-4 h-4" />绑定</button>
+            </div>
+            <input v-model="bindingSearch" class="input-field" placeholder="搜索用户名、公司、邮箱..." />
+          </div>
+
+          <!-- 已绑定用户列表 -->
+          <div>
+            <label class="block text-sm text-slate-300 mb-2">已绑定用户</label>
+            <div v-if="bindings.length === 0" class="text-slate-500 text-center py-4 text-sm">暂无绑定用户</div>
+            <div v-else class="space-y-2 max-h-60 overflow-y-auto">
+              <div v-for="userId in bindings" :key="userId"
+                   class="flex items-center justify-between p-3 rounded-lg bg-slate-500/[0.03] border border-slate-500/10">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm text-white">{{ getBoundUserDetail(userId)?.username || '未知用户' }}</span>
+                    <span v-if="getBoundUserDetail(userId)?.companyName" class="text-xs text-slate-500">{{ getBoundUserDetail(userId).companyName }}</span>
+                  </div>
+                  <code class="text-xs font-mono text-slate-500">{{ userId }}</code>
+                </div>
+                <button @click="removeBinding(userId)" class="p-1 rounded hover:bg-white/5 text-red-400"><Trash2 class="w-3.5 h-3.5" /></button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-6">
+          <button @click="closeBindingModal()" class="btn-secondary flex-1">关闭</button>
         </div>
       </div>
     </div>
