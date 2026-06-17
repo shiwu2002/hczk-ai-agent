@@ -135,7 +135,7 @@ public class ChatController {
                 bodyMap.put("session_id", UUID.randomUUID().toString());
                 bodyMap.put("user_id", "trial");
                 // 传递平台注册的 MCP 工具列表，供智能体做 function calling
-                bodyMap.put("available_skills", getAvailableSkills());
+                bodyMap.put("available_skills", getAvailableSkills("trial"));
                 bodyMap.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");;
                 String body = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
                 try (OutputStream os = conn.getOutputStream()) {
@@ -194,7 +194,7 @@ public class ChatController {
             body.put("message", message);
             body.put("session_id", UUID.randomUUID().toString());
             // 传递平台注册的 MCP 工具列表
-            body.put("available_skills", getAvailableSkills());
+            body.put("available_skills", getAvailableSkills("trial"));
             body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");;
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
@@ -447,7 +447,7 @@ public class ChatController {
             body.put("message", message);
             body.put("session_id", sessionId);
             // 传递平台注册的 MCP 工具列表，供智能体做 function calling
-            body.put("available_skills", getAvailableSkills());
+            body.put("available_skills", getAvailableSkills(userId));
             body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
             if (originalRequest != null) {
                 for (Map.Entry<String, Object> entry : originalRequest.entrySet()) {
@@ -496,7 +496,7 @@ public class ChatController {
                 Map<String, Object> body = new java.util.HashMap<>();
                 body.put("user_id", userId);
                 // 传递平台注册的 MCP 工具列表
-                body.put("available_skills", getAvailableSkills());
+                body.put("available_skills", getAvailableSkills(userId));
                 body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
                 if (originalRequest != null) {
                     body.putAll(originalRequest);
@@ -583,7 +583,7 @@ public class ChatController {
             body.put("user_id", userId);
             body.put("message", message);
             body.put("session_id", sessionId);
-            body.put("available_skills", getAvailableSkills());
+            body.put("available_skills", getAvailableSkills(userId));
             body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
@@ -599,7 +599,17 @@ public class ChatController {
 
     /** 构建工具组目录列表（传递给智能体的初始化目录） */
     private List<Map<String, Object>> getAvailableSkills() {
-        List<Skill> skills = skillService.getAllSkillsWithToolCount();
+        return getAvailableSkills(null);
+    }
+
+    /**
+     * 构建工具组目录列表（按用户身份过滤，传递给智能体的初始化目录）
+     * v10：仅传递用户可访问的工具组（public + 用户已绑定的 private）
+     *
+     * @param userId 用户ID，为 null 时仅返回 public
+     */
+    private List<Map<String, Object>> getAvailableSkills(String userId) {
+        List<Skill> skills = skillService.getAccessibleSkillsWithToolCount(userId);
         return skills.stream()
                 .filter(s -> "active".equals(s.getStatus()))
                 .map(s -> {
@@ -608,6 +618,7 @@ public class ChatController {
                     g.put("display_name", s.getDisplayName());
                     g.put("description", s.getDescription());
                     g.put("category", s.getCategory());
+                    g.put("visibility", s.getVisibility());
                     g.put("tool_count", s.getToolCount());
                     return g;
                 })

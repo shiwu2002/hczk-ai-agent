@@ -5,10 +5,12 @@ import com.hczk.hczkaiagentserver.entity.Agent;
 import com.hczk.hczkaiagentserver.entity.MerchantAgentBinding;
 import com.hczk.hczkaiagentserver.entity.Skill;
 import com.hczk.hczkaiagentserver.entity.ToolDefinition;
+import com.hczk.hczkaiagentserver.entity.UserSkillBinding;
 import com.hczk.hczkaiagentserver.service.AgentService;
 import com.hczk.hczkaiagentserver.service.MerchantAgentBindingService;
 import com.hczk.hczkaiagentserver.service.SkillService;
 import com.hczk.hczkaiagentserver.service.ToolDefinitionService;
+import com.hczk.hczkaiagentserver.service.UserSkillBindingService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,13 +27,16 @@ public class PlatformController {
     private final ToolDefinitionService toolDefinitionService;
     private final MerchantAgentBindingService bindingService;
     private final AgentService agentService;
+    private final UserSkillBindingService userSkillBindingService;
 
     public PlatformController(SkillService skillService, ToolDefinitionService toolDefinitionService,
-                              MerchantAgentBindingService bindingService, AgentService agentService) {
+                              MerchantAgentBindingService bindingService, AgentService agentService,
+                              UserSkillBindingService userSkillBindingService) {
         this.skillService = skillService;
         this.toolDefinitionService = toolDefinitionService;
         this.bindingService = bindingService;
         this.agentService = agentService;
+        this.userSkillBindingService = userSkillBindingService;
     }
 
     // ========== 智能体管理 ==========
@@ -204,5 +209,84 @@ public class PlatformController {
     @PatchMapping("/bindings/{userId}")
     public Result<MerchantAgentBinding> toggleBinding(@PathVariable String userId, @RequestParam boolean enabled) {
         return Result.success(bindingService.toggleBinding(userId, enabled));
+    }
+
+    // ========== v10 新增：Skill 可见性与用户绑定管理 ==========
+
+    /**
+     * 设置工具组可见性（public / private）
+     */
+    @PutMapping("/skills/{skillId}/visibility")
+    public Result<Skill> setSkillVisibility(@PathVariable String skillId, @RequestParam String visibility) {
+        if (!"public".equals(visibility) && !"private".equals(visibility)) {
+            return Result.error("visibility 取值仅支持 public / private");
+        }
+        try {
+            Skill patch = new Skill();
+            patch.setVisibility(visibility);
+            return Result.success(skillService.updateSkill(skillId, patch));
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 绑定工具组到用户
+     * 请求体：{ "user_id": "xxx", "skill_id": "xxx" }
+     */
+    @PostMapping("/skill-bindings")
+    public Result<UserSkillBinding> bindSkillToUser(@RequestBody Map<String, String> body) {
+        String userId = body.get("user_id");
+        String skillId = body.get("skill_id");
+        if (userId == null || userId.isBlank()) return Result.error("缺少 user_id");
+        if (skillId == null || skillId.isBlank()) return Result.error("缺少 skill_id");
+        try {
+            return Result.success(userSkillBindingService.bind(userId, skillId));
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 解除用户与工具组的绑定
+     */
+    @DeleteMapping("/skill-bindings")
+    public Result<Void> unbindSkillFromUser(@RequestParam String userId, @RequestParam String skillId) {
+        try {
+            userSkillBindingService.unbind(userId, skillId);
+            return Result.success();
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 切换用户工具组绑定的启用状态
+     */
+    @PatchMapping("/skill-bindings")
+    public Result<UserSkillBinding> toggleSkillBinding(@RequestParam String userId,
+                                                       @RequestParam String skillId,
+                                                       @RequestParam boolean enabled) {
+        try {
+            return Result.success(userSkillBindingService.toggle(userId, skillId, enabled));
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 查询指定用户绑定的所有工具组绑定记录
+     */
+    @GetMapping("/skill-bindings/user/{userId}")
+    public Result<List<UserSkillBinding>> getBindingsByUser(@PathVariable String userId) {
+        return Result.success(userSkillBindingService.getBindingsByUserId(userId));
+    }
+
+    /**
+     * 查询指定工具组绑定的所有用户ID
+     */
+    @GetMapping("/skill-bindings/skill/{skillId}")
+    public Result<List<String>> getBoundUsersBySkill(@PathVariable String skillId) {
+        return Result.success(userSkillBindingService.getBoundUserIds(skillId));
     }
 }

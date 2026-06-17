@@ -38,6 +38,13 @@ public class Skill {
     /** 状态：active / inactive */
     private String status = "active";
 
+    /**
+     * 可见性：public 公开 / private 私有（需绑定用户）
+     * - public  : 所有智能体可查看和调用
+     * - private : 仅被绑定的用户对应的智能体可查看和调用
+     */
+    private String visibility = "public";
+
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
@@ -49,4 +56,8 @@ public class Skill {
     /** 该工具组下的工具数量（Transient，由 Service 填充） */
     @TableField(exist = false)
     private Integer toolCount;
+
+    /** 当前用户是否已绑定该工具组（Transient，由 Service 填充，仅私有 skill 有意义） */
+    @TableField(exist = false)
+    private Boolean bound;
 }
