@@ -28,7 +28,7 @@ onMounted(async () => {
 
 async function saveProfile() {
   saving.value = true
-  const res = await api.put(`/users/${authStore.user?.userId}`, {
+  const res = await api.put(`/users/${authStore.currentUser?.userId}`, {
     phoneNumber: profile.value.phoneNumber,
     companyName: profile.value.companyName
   })
@@ -56,7 +56,7 @@ async function changePassword() {
   }
   changingPassword.value = true
   try {
-    const res = await api.put(`/users/${authStore.user?.userId}/password`, {
+    const res = await api.put(`/users/${authStore.currentUser?.userId}/password`, {
       oldPassword,
       newPassword
     })

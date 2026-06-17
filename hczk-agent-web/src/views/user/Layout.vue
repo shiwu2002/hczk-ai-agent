@@ -51,7 +51,7 @@ const currentNavName = computed(() => navItems.find(i => isActive(i.path))?.name
               <Sparkles class="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 class="font-bold text-white text-lg leading-tight">智联平台</h1>
+              <h1 class="font-bold text-white text-lg leading-tight">桓宸智科</h1>
               <p class="text-xs text-slate-500">用户控制台</p>
             </div>
           </div>
@@ -107,9 +107,9 @@ const currentNavName = computed(() => navItems.find(i => isActive(i.path))?.name
         <div class="flex items-center gap-4">
           <div class="flex items-center gap-2">
             <div class="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white text-sm font-bold">
-              {{ authStore.currentUser?.name?.[0] || 'U' }}
+              {{ authStore.currentUser?.username?.[0] || 'U' }}
             </div>
-            <span class="text-sm text-slate-300 hidden sm:inline">{{ authStore.currentUser?.name || 'User' }}</span>
+            <span class="text-sm text-slate-300 hidden sm:inline">{{ authStore.currentUser?.username || 'User' }}</span>
           </div>
         </div>
       </header>

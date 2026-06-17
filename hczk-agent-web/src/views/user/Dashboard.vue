@@ -19,7 +19,7 @@ onMounted(async () => {
       api.get('/users/me'),
       api.get('/billing/my-usage'),
       api.get('/billing/my-records'),
-      api.get('/api-keys/user/' + authStore.user?.userId)
+      api.get('/api-keys/user/' + authStore.currentUser?.userId)
     ])
     if (userRes.code === 200) authStore.user = userRes.data
     if (usageRes.code === 200) usageRecords.value = usageRes.data || []

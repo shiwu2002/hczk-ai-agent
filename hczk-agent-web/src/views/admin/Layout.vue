@@ -48,7 +48,7 @@ function logout() {
             <Shield class="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 class="font-bold text-white text-lg leading-tight">智联平台</h1>
+            <h1 class="font-bold text-white text-lg leading-tight">桓宸智科</h1>
             <p class="text-xs text-slate-500">管理控制台</p>
           </div>
         </div>

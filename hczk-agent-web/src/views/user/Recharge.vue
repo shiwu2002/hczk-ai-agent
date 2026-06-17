@@ -180,7 +180,7 @@ onUnmounted(() => {
       <div class="relative flex items-center justify-between">
         <div>
           <p class="text-sm text-slate-400">当前余额</p>
-          <p class="text-4xl font-bold text-white mt-2">¥{{ Number(authStore.user?.balance || 0).toFixed(2) }}</p>
+          <p class="text-4xl font-bold text-white mt-2">¥{{ Number(authStore.currentUser?.balance || 0).toFixed(2) }}</p>
           <p class="text-sm text-slate-500 mt-1">选择套餐充值，余额用于 Token 消耗计费</p>
         </div>
         <div class="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center">

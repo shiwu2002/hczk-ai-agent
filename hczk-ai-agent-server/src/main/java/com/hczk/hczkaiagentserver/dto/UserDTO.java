@@ -3,6 +3,7 @@ package com.hczk.hczkaiagentserver.dto;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 /**
  * 用户数据传输对象
@@ -26,4 +27,6 @@ public class UserDTO {
     private String companyName;
     /** 账号状态：0正常 / 1禁用 */
     private Integer status;
+    /** 注册时间 */
+    private LocalDateTime createdAt;
 }

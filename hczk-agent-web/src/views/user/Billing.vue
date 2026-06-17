@@ -31,7 +31,7 @@ const billStats = computed(() => {
   return {
     totalRecharge,
     totalUsage,
-    balance: authStore.user?.balance || 0,
+    balance: authStore.currentUser?.balance || 0,
     count: bills.value.length
   }
 })

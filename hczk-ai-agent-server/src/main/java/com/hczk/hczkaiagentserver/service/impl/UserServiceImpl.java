@@ -164,6 +164,7 @@ public class UserServiceImpl implements UserService {
         dto.setPhoneNumber(user.getPhoneNumber());
         dto.setCompanyName(user.getCompanyName());
         dto.setStatus(user.getStatus());
+        dto.setCreatedAt(user.getCreatedAt());
         return dto;
     }
 
