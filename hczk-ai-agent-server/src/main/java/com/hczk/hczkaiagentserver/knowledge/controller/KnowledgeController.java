@@ -303,7 +303,11 @@ public class KnowledgeController {
             @RequestParam(required = false) String source,
             @RequestParam(defaultValue = "100") int limit) {
         String fullCollectionName = milvusManager.buildCollectionName(agentId, name);
-        milvusManager.ensureCollection(fullCollectionName);
+        // 浏览分块时不自动创建集合，避免产生空集合
+        if (!milvusManager.collectionExists(fullCollectionName)) {
+            return Result.error("集合不存在: " + name);
+        }
+        milvusManager.loadCollectionIfNeeded(fullCollectionName);
 
         // Build filter
         List<String> filters = new ArrayList<>();

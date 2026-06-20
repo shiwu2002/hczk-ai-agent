@@ -57,10 +57,11 @@ public class ToolController {
         @SuppressWarnings("unchecked")
         Map<String, Object> arguments = (Map<String, Object>) request.get("arguments");
         if (arguments == null) {
-            arguments = Map.of();
+            arguments = new HashMap<>();
         }
 
         // v10：权限校验——根据当前用户身份判断是否可调用该工具
+        // user_id 必须由智能体在 arguments 中携带，平台不自动注入
         String currentUserId = resolveCurrentUserId(arguments);
         String skillId = toolDefinitionService.getSkillIdByToolName(toolName);
         if (skillId == null) {
@@ -69,6 +70,13 @@ public class ToolController {
         if (!skillService.canUserAccess(currentUserId, skillId)) {
             log.warn("工具调用被拒绝（无权访问工具组）: userId={}, toolName={}, skillId={}", currentUserId, toolName, skillId);
             return Result.error("无权调用该工具: " + toolName);
+        }
+
+        // 校验必填参数：从 input_schema 的 required 字段检查
+        List<String> missingParams = toolDefinitionService.validateRequiredParams(toolName, arguments);
+        if (!missingParams.isEmpty()) {
+            log.warn("工具调用缺少必填参数: tool={}, missing={}", toolName, missingParams);
+            return Result.error("缺少必填参数: " + String.join(", ", missingParams) + "，智能体必须在调用时携带");
         }
 
         log.info("工具执行请求: tool={}, args={}, userId={}", toolName, arguments, currentUserId);

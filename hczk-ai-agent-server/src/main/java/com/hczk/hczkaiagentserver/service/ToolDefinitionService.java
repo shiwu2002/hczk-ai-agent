@@ -45,4 +45,10 @@ public interface ToolDefinitionService {
      * 根据工具名查找所属工具组ID
      */
     String getSkillIdByToolName(String toolName);
+
+    /**
+     * 校验工具的必填参数是否已提供
+     * 从 input_schema 的 required 字段检查，返回缺失的参数名列表
+     */
+    List<String> validateRequiredParams(String toolName, Map<String, Object> arguments);
 }

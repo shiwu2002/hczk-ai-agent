@@ -48,16 +48,27 @@ public class ToolExecuteService {
     /**
      * 获取 agentId（雪花ID字符串）
      * 优先取 user_id，兼容 agent_id
+     * 如果两者都未提供，返回 null（调用方需自行处理）
      */
     private String getAgentId(Map<String, Object> args) {
-        if (args.containsKey("user_id")) return String.valueOf(args.get("user_id"));
-        if (args.containsKey("agent_id")) return String.valueOf(args.get("agent_id"));
-        return "default";
+        if (args.containsKey("user_id") && args.get("user_id") != null && !String.valueOf(args.get("user_id")).isBlank()) {
+            return String.valueOf(args.get("user_id"));
+        }
+        if (args.containsKey("agent_id") && args.get("agent_id") != null && !String.valueOf(args.get("agent_id")).isBlank()) {
+            return String.valueOf(args.get("agent_id"));
+        }
+        return null;
     }
 
     private Map<String, Object> executeKnowledgeSearch(Map<String, Object> args) {
+        String agentId = getAgentId(args);
+        if (agentId == null) {
+            log.warn("knowledge_search 调用缺少 user_id，无法定位知识库集合: args={}", args);
+            return Map.of("success", false, "error", "缺少必填参数 user_id，智能体必须在调用时携带用户ID以定位知识库集合");
+        }
+
         RetrieveRequest req = new RetrieveRequest();
-        req.setAgentId(getAgentId(args));
+        req.setAgentId(agentId);
         req.setQuery((String) args.get("query"));
         req.setCollection((String) args.getOrDefault("collection_name", "default"));
         if (args.containsKey("top_k")) {
@@ -78,8 +89,13 @@ public class ToolExecuteService {
     }
 
     private Map<String, Object> executeKnowledgeIngest(Map<String, Object> args) {
+        String agentId = getAgentId(args);
+        if (agentId == null) {
+            return Map.of("success", false, "error", "缺少必填参数 user_id，智能体必须在调用时携带用户ID以定位知识库集合");
+        }
+
         IngestRequest req = new IngestRequest();
-        req.setAgentId(getAgentId(args));
+        req.setAgentId(agentId);
         req.setText((String) args.get("text"));
         req.setCollection((String) args.getOrDefault("collection_name", "default"));
         req.setTitle(args.containsKey("title") ? (String) args.get("title") : null);

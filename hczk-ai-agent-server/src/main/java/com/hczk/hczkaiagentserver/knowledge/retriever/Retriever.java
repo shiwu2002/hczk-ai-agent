@@ -1,5 +1,6 @@
 package com.hczk.hczkaiagentserver.knowledge.retriever;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hczk.hczkaiagentserver.entity.RetrievalLog;
 import com.hczk.hczkaiagentserver.knowledge.config.EmbeddingProperties;
 import com.hczk.hczkaiagentserver.knowledge.config.RetrieveProperties;
@@ -34,6 +35,7 @@ public class Retriever {
     private final RetrieveProperties retrieveProperties;
     private final EmbeddingProperties embeddingProperties;
     private final RetrievalLogMapper retrievalLogMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final Pattern KEYWORD_PATTERN = Pattern.compile("[\\u4e00-\\u9fa5]+|[a-zA-Z]+");
 
@@ -51,7 +53,14 @@ public class Retriever {
         long startTime = System.currentTimeMillis();
 
         try {
-            milvusManager.ensureCollection(fullCollectionName);
+            // 检索时不自动创建集合，避免产生空集合
+            if (!milvusManager.collectionExists(fullCollectionName)) {
+                log.warn("集合不存在，直接返回兜底回复: agentId={}, collection={}, fullCollectionName={}", agentId, collectionName, fullCollectionName);
+                RetrieveResponse resp = buildFallbackResponse(query, k);
+                asyncRecordRetrievalLog(agentId, collectionName, query, k, resp, System.currentTimeMillis() - startTime);
+                return resp;
+            }
+            milvusManager.loadCollectionIfNeeded(fullCollectionName);
         } catch (Exception e) {
             RetrieveResponse resp = buildFallbackResponse(query, k);
             asyncRecordRetrievalLog(agentId, collectionName, query, k, resp, System.currentTimeMillis() - startTime);
@@ -351,13 +360,37 @@ public class Retriever {
             logEntry.setHitCount(results != null ? results.size() : 0);
 
             if (results != null && !results.isEmpty()) {
-                logEntry.setTopScore(results.get(0).getScore());
-                // 构建命中块溯源摘要 JSON
+                // 得分分布
+                double maxScore = Double.NEGATIVE_INFINITY, minScore = Double.POSITIVE_INFINITY, sumScore = 0;
+                Map<String, Integer> chunkTypeDist = new LinkedHashMap<>();
+                for (RetrieveResponse.RetrieveResult r : results) {
+                    double score = r.getScore();
+                    maxScore = Math.max(maxScore, score);
+                    minScore = Math.min(minScore, score);
+                    sumScore += score;
+                    // 块类型分布
+                    String ct = r.getMetadata() != null && r.getMetadata().getChunkType() != null
+                            ? r.getMetadata().getChunkType() : "unknown";
+                    chunkTypeDist.merge(ct, 1, Integer::sum);
+                }
+                logEntry.setTopScore(maxScore);
+                logEntry.setMinScore(minScore);
+                logEntry.setAvgScore(Math.round(sumScore / results.size() * 10000) / 10000.0);
+                logEntry.setChunkTypeDist(objectMapper.writeValueAsString(chunkTypeDist));
+
+                // 命中块溯源摘要 JSON
                 logEntry.setHitSources(buildHitSourcesJson(results));
             } else {
                 logEntry.setTopScore(0.0);
+                logEntry.setMinScore(0.0);
+                logEntry.setAvgScore(0.0);
                 logEntry.setHitSources("[]");
+                logEntry.setChunkTypeDist("{}");
             }
+
+            // 向量距离（近似：1 - cosine_score，cosine 得分越高距离越小）
+            logEntry.setAvgDistance(logEntry.getAvgScore() > 0
+                    ? Math.round((1.0 - logEntry.getAvgScore()) * 10000) / 10000.0 : 1.0);
 
             retrievalLogMapper.insert(logEntry);
         } catch (Exception e) {

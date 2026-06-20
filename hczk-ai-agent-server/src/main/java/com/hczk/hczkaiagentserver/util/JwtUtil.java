@@ -56,6 +56,23 @@ public class JwtUtil {
                 .compact();
     }
 
+    /**
+     * 生成包含用户ID的JWT Token
+     */
+    public String generateToken(String username, Integer role, String userId) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + expiration);
+
+        return Jwts.builder()
+                .subject(username)
+                .claim("role", role)
+                .claim("userId", userId)
+                .issuedAt(now)
+                .expiration(expiryDate)
+                .signWith(getSigningKey())
+                .compact();
+    }
+
     public String generateRefreshToken(String username) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + refreshExpiration);
@@ -105,6 +122,11 @@ public class JwtUtil {
     public Integer getRoleFromToken(String token) {
         Claims claims = parseToken(token);
         return claims.get("role", Integer.class);
+    }
+
+    public String getUserIdFromToken(String token) {
+        Claims claims = parseToken(token);
+        return claims.get("userId", String.class);
     }
 
     public boolean validateToken(String token) {

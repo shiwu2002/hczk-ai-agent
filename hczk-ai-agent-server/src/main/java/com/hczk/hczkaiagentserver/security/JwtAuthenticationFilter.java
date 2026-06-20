@@ -45,6 +45,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (StringUtils.hasText(token) && jwtUtil.validateToken(token)) {
             String username = jwtUtil.getUsernameFromToken(token);
             Integer roleValue = jwtUtil.getRoleFromToken(token);
+            String userId = jwtUtil.getUserIdFromToken(token);
 
             // 将 Integer 角色值映射为 Spring Security 角色名：0→ADMIN，1→USER
             String roleName = (roleValue != null && roleValue == 0) ? "ADMIN" : "USER";
@@ -56,7 +57,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             null,
                             List.of(new SimpleGrantedAuthority("ROLE_" + roleName))
                     );
-            authentication.setDetails(request);
+            // 将 userId 存入 details，供后续 resolveCurrentUserId() 使用
+            if (userId != null && !userId.isEmpty()) {
+                authentication.setDetails(java.util.Map.of("userId", userId));
+            }
             SecurityContextHolder.getContext().setAuthentication(authentication);
         }
 

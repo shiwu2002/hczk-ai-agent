@@ -96,22 +96,40 @@ public class ChatController {
             return ResponseEntity.badRequest().body(Map.of("error", "消息内容不能为空"));
         }
 
+        // 从认证上下文获取当前用户ID，而非硬编码 "trial"
+        String currentUserId = resolveCurrentUserId();
+
         boolean useStream = Boolean.TRUE.equals(request.getStream());
         String streamEndpoint = agent.getStreamEndpoint();
 
         // 如果请求流式且智能体配置了流式端点，使用 SSE 代理
         if (useStream && streamEndpoint != null && !streamEndpoint.trim().isEmpty()) {
-            return proxyTrialSse(agent, message);
+            return proxyTrialSse(agent, message, currentUserId);
         }
 
         // 否则使用同步调用
-        return syncTrialCall(agent, message);
+        return syncTrialCall(agent, message, currentUserId);
+    }
+
+    /**
+     * 从 SecurityContext 中解析当前用户ID
+     */
+    private String resolveCurrentUserId() {
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getDetails() instanceof Map<?, ?> details) {
+            Object userId = details.get("userId");
+            if (userId != null) return String.valueOf(userId);
+        }
+        if (auth != null && auth.getName() != null && auth.getName().startsWith("apikey-user-")) {
+            return auth.getName().substring("apikey-user-".length());
+        }
+        return null;
     }
 
     /**
      * 智能体试用 - SSE 流式代理
      */
-    private SseEmitter proxyTrialSse(Agent agent, String message) {
+    private SseEmitter proxyTrialSse(Agent agent, String message, String currentUserId) {
         SseEmitter emitter = new SseEmitter(60000L);
 
         sseExecutor.execute(() -> {
@@ -126,17 +144,18 @@ public class ChatController {
                 conn.setReadTimeout(60000);
 
                 // 使用JWT鉴权：生成智能体调用JWT，通过 Authorization 头传递
-                String agentToken = jwtUtil.generateAgentToken("trial", null);
+                String agentToken = jwtUtil.generateAgentToken(currentUserId, null);
                 conn.setRequestProperty("Authorization", "Bearer " + agentToken);
 
                 // 发送请求体（使用 Jackson 序列化为合法 JSON，包含 tools 列表）
                 Map<String, Object> bodyMap = new java.util.HashMap<>();
                 bodyMap.put("message", message);
                 bodyMap.put("session_id", UUID.randomUUID().toString());
-                bodyMap.put("user_id", "trial");
+                bodyMap.put("user_id", currentUserId);
                 // 传递平台注册的 MCP 工具列表，供智能体做 function calling
-                bodyMap.put("available_skills", getAvailableSkills("trial"));
-                bodyMap.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");;
+                bodyMap.put("available_skills", getAvailableSkills(currentUserId));
+                bodyMap.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
+                bodyMap.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
                 String body = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
                 try (OutputStream os = conn.getOutputStream()) {
                     os.write(body.getBytes());
@@ -181,21 +200,22 @@ public class ChatController {
     /**
      * 智能体试用 - 同步调用
      */
-    private ResponseEntity<?> syncTrialCall(Agent agent, String message) {
+    private ResponseEntity<?> syncTrialCall(Agent agent, String message, String currentUserId) {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             // 使用JWT鉴权：生成智能体调用JWT
-            String agentToken = jwtUtil.generateAgentToken("trial", null);
+            String agentToken = jwtUtil.generateAgentToken(currentUserId, null);
             headers.set("Authorization", "Bearer " + agentToken);
 
             Map<String, Object> body = new java.util.HashMap<>();
-            body.put("user_id", "trial");
+            body.put("user_id", currentUserId);
             body.put("message", message);
             body.put("session_id", UUID.randomUUID().toString());
             // 传递平台注册的 MCP 工具列表
-            body.put("available_skills", getAvailableSkills("trial"));
-            body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");;
+            body.put("available_skills", getAvailableSkills(currentUserId));
+            body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
+            body.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
@@ -449,6 +469,9 @@ public class ChatController {
             // 传递平台注册的 MCP 工具列表，供智能体做 function calling
             body.put("available_skills", getAvailableSkills(userId));
             body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
+            // 传递工具执行端点和认证信息，供远端智能体回调平台工具时使用
+            body.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
+            body.put("tools_auth_token", apiKey);  // 用 API Key 作为回调认证凭据
             if (originalRequest != null) {
                 for (Map.Entry<String, Object> entry : originalRequest.entrySet()) {
                     if (!body.containsKey(entry.getKey())) {
@@ -498,6 +521,8 @@ public class ChatController {
                 // 传递平台注册的 MCP 工具列表
                 body.put("available_skills", getAvailableSkills(userId));
                 body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
+                body.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
+                body.put("tools_auth_token", apiKey);
                 if (originalRequest != null) {
                     body.putAll(originalRequest);
                 }
@@ -585,6 +610,9 @@ public class ChatController {
             body.put("session_id", sessionId);
             body.put("available_skills", getAvailableSkills(userId));
             body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
+            // 传递工具执行端点和认证信息，供远端智能体回调平台工具时使用
+            body.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
+            body.put("tools_auth_token", apiKey);  // 用 API Key 作为回调认证凭据
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
             @SuppressWarnings("unchecked")

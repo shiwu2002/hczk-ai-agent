@@ -1,5 +1,7 @@
 package com.hczk.hczkaiagentserver.knowledge.ingester;
 
+import com.hczk.hczkaiagentserver.entity.IngestLog;
+import com.hczk.hczkaiagentserver.entity.ServiceHealthMetric;
 import com.hczk.hczkaiagentserver.knowledge.chunker.Chunker;
 import com.hczk.hczkaiagentserver.knowledge.config.EmbeddingProperties;
 import com.hczk.hczkaiagentserver.knowledge.config.IngestProperties;
@@ -32,6 +34,8 @@ public class Ingester {
     private final IngestProperties ingestProperties;
     private final EmbeddingProperties embeddingProperties;
     private final LlmPreprocessor llmPreprocessor;
+    private final com.hczk.hczkaiagentserver.mapper.IngestLogMapper ingestLogMapper;
+    private final com.hczk.hczkaiagentserver.mapper.ServiceHealthMetricMapper serviceHealthMetricMapper;
 
     public IngestResponse ingestText(String agentId, String collectionName, String text,
                                       String source, String title) {
@@ -63,19 +67,33 @@ public class Ingester {
     public IngestResponse ingestPages(String agentId, String collectionName,
                                        List<DocumentParser.ParsedPage> pages,
                                        String source, String title, String docType) {
+        long startTime = System.currentTimeMillis();
+        IngestLog ingestLog = new IngestLog();
+        ingestLog.setAgentId(agentId);
+        ingestLog.setCollectionName(collectionName);
+        ingestLog.setSource(source);
+        ingestLog.setDocType(docType);
+        ingestLog.setTotalPages(pages.size());
+        ingestLog.setFileType(source != null ? source.substring(source.lastIndexOf('.') + 1).toLowerCase() : "");
+
         String fullCollectionName = milvusManager.buildCollectionName(agentId, collectionName);
         milvusManager.ensureCollection(fullCollectionName);
         Chunker chunker = new Chunker(ingestProperties.getChunkSize(), ingestProperties.getChunkOverlapSentences());
 
         List<Chunker.Chunk> chunks;
+        boolean llmUsed = false;
+        long llmStart = 0;
 
         // 优先走 LLM 页感知预处理
         if (llmPreprocessor.shouldPreprocessPages(pages, docType)) {
             try {
                 log.info("开始 LLM 页感知预处理: source={}, title={}, pages={}", source, title, pages.size());
+                llmStart = System.currentTimeMillis();
                 List<LlmPreprocessor.SemanticChunk> semanticChunks = llmPreprocessor.summarizeAndSplitWithPages(pages);
+                ingestLog.setLlmPreprocessMs(System.currentTimeMillis() - llmStart);
 
                 if (semanticChunks != null && !semanticChunks.isEmpty()) {
+                    llmUsed = true;
                     chunks = new ArrayList<>();
                     for (LlmPreprocessor.SemanticChunk sc : semanticChunks) {
                         chunks.add(Chunker.Chunk.builder()
@@ -90,11 +108,19 @@ public class Ingester {
                                 .build());
                     }
                     log.info("LLM 页感知预处理成功: {} 页 → {} 个语义块", pages.size(), chunks.size());
-                    return ingestChunks(fullCollectionName, chunks, source, title);
+                    ingestLog.setLlmPreprocessUsed(true);
+                    ingestLog.setTotalChunks(chunks.size());
+                    ingestLog.setOcrUsed(false); // OCR 在解析阶段已处理
+                    IngestResponse resp = ingestChunks(fullCollectionName, chunks, source, title);
+                    ingestLog.setIngestDurationMs(System.currentTimeMillis() - startTime);
+                    ingestLog.setStatus("success");
+                    ingestLogMapper.insert(ingestLog);
+                    return resp;
                 }
                 log.warn("LLM 页感知预处理返回空结果，回退到规则分块");
             } catch (Exception e) {
                 log.error("LLM 页感知预处理失败，回退到规则分块: {}", e.getMessage(), e);
+                ingestLog.setErrorMessage("LLM预处理失败: " + e.getMessage());
             }
         }
 
@@ -116,7 +142,12 @@ public class Ingester {
             chunk.setChapter(chapter);
             chunk.setSourceFilename(sourceFilename);
         }
-        return ingestChunks(fullCollectionName, chunks, source, title);
+        ingestLog.setTotalChunks(chunks.size());
+        IngestResponse resp = ingestChunks(fullCollectionName, chunks, source, title);
+        ingestLog.setIngestDurationMs(System.currentTimeMillis() - startTime);
+        ingestLog.setStatus("success");
+        ingestLogMapper.insert(ingestLog);
+        return resp;
     }
 
     /**
