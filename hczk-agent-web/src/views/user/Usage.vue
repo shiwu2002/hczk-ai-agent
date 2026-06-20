@@ -1,16 +1,11 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useApiStore } from '@/stores/api'
-import { BarChart3, TrendingUp, Zap, Wallet, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { BarChart3, TrendingUp, Zap, Wallet, CalendarDays, Activity, Coins, Hash, ArrowUpRight, ArrowDownRight, Minus, Cpu, Gauge, PieChart } from 'lucide-vue-next'
 
 const api = useApiStore()
 const loading = ref(false)
 const usageRecords = ref([])
-const hoveredPoint = ref(null)
-
-// Pagination
-const currentPage = ref(1)
-const pageSize = 15
 
 onMounted(async () => {
   loading.value = true
@@ -19,6 +14,7 @@ onMounted(async () => {
   loading.value = false
 })
 
+// ====== 基础统计 ======
 const stats = computed(() => {
   let totalInput = 0, totalOutput = 0, totalCost = 0
   for (const r of usageRecords.value) {
@@ -29,19 +25,7 @@ const stats = computed(() => {
   return { totalInput, totalOutput, totalCost, count: usageRecords.value.length }
 })
 
-const statCards = computed(() => [
-  { label: '总调用次数', value: stats.value.count.toLocaleString(), sub: '次', icon: Zap, color: 'cyan' },
-  { label: '输入Token', value: stats.value.totalInput.toLocaleString(), sub: 'tokens', icon: BarChart3, color: 'cyan' },
-  { label: '输出Token', value: stats.value.totalOutput.toLocaleString(), sub: 'tokens', icon: TrendingUp, color: 'amber' },
-  { label: '总费用', value: '¥' + stats.value.totalCost.toFixed(2), sub: '元', icon: Wallet, color: 'emerald' }
-])
-
-const colorMap = {
-  cyan: { bg: 'bg-cyan-500/10', text: 'text-cyan-400' },
-  amber: { bg: 'bg-amber-500/10', text: 'text-amber-400' },
-  emerald: { bg: 'bg-emerald-500/10', text: 'text-emerald-400' }
-}
-
+// ====== 每日数据 ======
 const dailyData = computed(() => {
   const days = []
   const now = new Date()
@@ -50,169 +34,101 @@ const dailyData = computed(() => {
     d.setDate(d.getDate() - i)
     const dateStr = d.toDateString()
     const label = `${d.getMonth() + 1}/${d.getDate()}`
-    let input = 0, output = 0
+    const isToday = i === 0
+    let input = 0, output = 0, cost = 0, calls = 0
     for (const r of usageRecords.value) {
       if (r.createdAt && new Date(r.createdAt).toDateString() === dateStr) {
         input += r.inputTokens || 0
         output += r.outputTokens || 0
+        cost += Math.abs(Number(r.amount || 0))
+        calls++
       }
     }
-    days.push({ label, input, output, total: input + output })
+    days.push({ label, input, output, cost, calls, total: input + output, isToday })
   }
   return days
 })
 
-// Line chart computed values
-const chartPadding = { top: 20, right: 20, bottom: 36, left: 50 }
-const chartWidth = 700
-const chartHeight = 240
-const plotWidth = chartWidth - chartPadding.left - chartPadding.right
-const plotHeight = chartHeight - chartPadding.top - chartPadding.bottom
-
-const lineChartMax = computed(() => {
-  const maxVal = Math.max(...dailyData.value.map(d => Math.max(d.input, d.output)))
-  return maxVal || 1
+// ====== 日环比变化 ======
+const dayOverDay = computed(() => {
+  const today = dailyData.value.find(d => d.isToday)
+  const yesterday = dailyData.value.filter(d => !d.isToday).slice(-1)[0]
+  if (!today || !yesterday) return { calls: 0, tokens: 0, cost: 0 }
+  const calc = (curr, prev) => {
+    if (prev === 0) return curr > 0 ? 100 : 0
+    return Math.round(((curr - prev) / prev) * 100)
+  }
+  return {
+    calls: calc(today.calls, yesterday.calls),
+    tokens: calc(today.total, yesterday.total),
+    cost: calc(today.cost, yesterday.cost)
+  }
 })
 
-const lineYTicks = computed(() => {
-  const max = lineChartMax.value
-  const ticks = []
-  const count = 5
-  for (let i = 0; i <= count; i++) {
-    const val = Math.round((max / count) * i)
-    const y = chartPadding.top + plotHeight - (i / count) * plotHeight
-    ticks.push({ val, y })
-  }
-  return ticks
+function trendIcon(val) {
+  if (val > 0) return ArrowUpRight
+  if (val < 0) return ArrowDownRight
+  return Minus
+}
+
+function trendColor(val) {
+  if (val > 0) return 'text-emerald-400'
+  if (val < 0) return 'text-red-400'
+  return 'text-slate-400'
+}
+
+// ====== Token 效率分析 ======
+const efficiency = computed(() => {
+  const avgInput = stats.value.count ? Math.round(stats.value.totalInput / stats.value.count) : 0
+  const avgOutput = stats.value.count ? Math.round(stats.value.totalOutput / stats.value.count) : 0
+  const outputRatio = (stats.value.totalInput + stats.value.totalOutput) > 0
+    ? (stats.value.totalOutput / (stats.value.totalInput + stats.value.totalOutput) * 100).toFixed(1)
+    : 0
+  const costPerCall = stats.value.count ? (stats.value.totalCost / stats.value.count).toFixed(4) : 0
+  const costPer1kTokens = (stats.value.totalInput + stats.value.totalOutput) > 0
+    ? (stats.value.totalCost / (stats.value.totalInput + stats.value.totalOutput) * 1000).toFixed(4)
+    : 0
+  return { avgInput, avgOutput, outputRatio, costPerCall, costPer1kTokens }
 })
 
-function lineX(index) {
-  return chartPadding.left + (index / (dailyData.value.length - 1)) * plotWidth
+// ====== 每日费用趋势（柱状图） ======
+const barChartWidth = 600
+const barChartHeight = 180
+const barPadding = { top: 16, right: 16, bottom: 28, left: 44 }
+const barPlotW = barChartWidth - barPadding.left - barPadding.right
+const barPlotH = barChartHeight - barPadding.top - barPadding.bottom
+
+const barMaxCost = computed(() => {
+  const max = Math.max(...dailyData.value.map(d => d.cost))
+  return max || 1
+})
+
+function barX(index) {
+  const barW = barPlotW / dailyData.value.length
+  return barPadding.left + index * barW + barW * 0.15
 }
 
-function lineY(value) {
-  return chartPadding.top + plotHeight - (value / lineChartMax.value) * plotHeight
+function barW() {
+  return (barPlotW / dailyData.value.length) * 0.7
 }
 
-// Smooth bezier curve path generation
-function generateSmoothPath(data, key) {
-  const points = data.map((d, i) => ({ x: lineX(i), y: lineY(d[key]) }))
-  if (points.length < 2) return ''
-  let path = `M${points[0].x},${points[0].y}`
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(0, i - 1)]
-    const p1 = points[i]
-    const p2 = points[i + 1]
-    const p3 = points[Math.min(points.length - 1, i + 2)]
-    const cp1x = p1.x + (p2.x - p0.x) / 6
-    const cp1y = p1.y + (p2.y - p0.y) / 6
-    const cp2x = p2.x - (p3.x - p1.x) / 6
-    const cp2y = p2.y - (p3.y - p1.y) / 6
-    path += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`
-  }
-  return path
+function barH(cost) {
+  return (cost / barMaxCost.value) * barPlotH
 }
 
-// Smooth area path (for gradient fill under curve)
-function generateSmoothAreaPath(data, key) {
-  const points = data.map((d, i) => ({ x: lineX(i), y: lineY(d[key]) }))
-  if (points.length < 2) return ''
-  const baseline = chartPadding.top + plotHeight
-  let path = `M${points[0].x},${baseline}`
-  path += ` L${points[0].x},${points[0].y}`
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(0, i - 1)]
-    const p1 = points[i]
-    const p2 = points[i + 1]
-    const p3 = points[Math.min(points.length - 1, i + 2)]
-    const cp1x = p1.x + (p2.x - p0.x) / 6
-    const cp1y = p1.y + (p2.y - p0.y) / 6
-    const cp2x = p2.x - (p3.x - p1.x) / 6
-    const cp2y = p2.y - (p3.y - p1.y) / 6
-    path += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`
-  }
-  path += ` L${points[points.length - 1].x},${baseline} Z`
-  return path
+function barY(cost) {
+  return barPadding.top + barPlotH - barH(cost)
 }
 
-const inputLinePath = computed(() => generateSmoothPath(dailyData.value, 'input'))
-const outputLinePath = computed(() => generateSmoothPath(dailyData.value, 'output'))
-const inputAreaPath = computed(() => generateSmoothAreaPath(dailyData.value, 'input'))
-const outputAreaPath = computed(() => generateSmoothAreaPath(dailyData.value, 'output'))
+// ====== 每日汇总 ======
+const dailySummary = computed(() => {
+  return dailyData.value.slice().reverse()
+})
 
 function formatTokenShort(val) {
   if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M'
   if (val >= 1000) return (val / 1000).toFixed(1) + 'K'
   return String(val)
-}
-
-// Donut chart computed values
-const donutRadius = 70
-const donutStroke = 18
-const donutCircumference = 2 * Math.PI * donutRadius
-
-const donutData = computed(() => {
-  const input = stats.value.totalInput
-  const output = stats.value.totalOutput
-  const total = input + output
-  if (total === 0) return { inputRatio: 0, outputRatio: 0, total: 0, inputOffset: 0, outputOffset: 0, inputDasharray: '0 0', outputDasharray: '0 0' }
-  const inputRatio = input / total
-  const outputRatio = output / total
-  const inputLength = inputRatio * donutCircumference
-  const outputLength = outputRatio * donutCircumference
-  return {
-    inputRatio,
-    outputRatio,
-    total,
-    inputLength,
-    outputLength,
-    inputOffset: 0,
-    outputOffset: -inputLength,
-    inputDasharray: `${inputLength} ${donutCircumference - inputLength}`,
-    outputDasharray: `${outputLength} ${donutCircumference - outputLength}`
-  }
-})
-
-function setHoveredPoint(dayIndex, type) {
-  hoveredPoint.value = { dayIndex, type }
-}
-
-function clearHoveredPoint() {
-  hoveredPoint.value = null
-}
-
-// Tooltip position calculation to prevent viewport overflow
-function getTooltipX(index) {
-  const x = lineX(index)
-  const tooltipWidth = 96
-  const halfWidth = tooltipWidth / 2
-  // Clamp within chart area
-  const minX = chartPadding.left + halfWidth
-  const maxX = chartWidth - chartPadding.right - halfWidth
-  return Math.max(minX, Math.min(maxX, x))
-}
-
-function getTooltipY(value) {
-  const y = lineY(value)
-  const tooltipHeight = 24
-  const gap = 12
-  // Prefer above the point; if too close to top, show below
-  if (y - tooltipHeight - gap < chartPadding.top) {
-    return y + gap
-  }
-  return y - tooltipHeight - gap
-}
-
-// Pagination computed
-const totalPages = computed(() => Math.ceil(usageRecords.value.length / pageSize))
-const pagedRecords = computed(() => {
-  const start = (currentPage.value - 1) * pageSize
-  return usageRecords.value.slice(start, start + pageSize)
-})
-
-function goToPage(page) {
-  if (page < 1 || page > totalPages.value) return
-  currentPage.value = page
 }
 </script>
 
@@ -227,350 +143,306 @@ function goToPage(page) {
     </div>
 
     <template v-else>
-      <div>
-        <h1 class="text-2xl font-bold text-white">用量统计</h1>
-        <p class="text-slate-400 mt-1">查看您的 Token 消耗详情与趋势</p>
-      </div>
+      <!-- Row 1: 日环比 + 效率指标 -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <!-- 日环比变化 -->
+        <div class="glass-card rounded-2xl p-5">
+          <div class="flex items-center gap-2 mb-4">
+            <TrendingUp class="w-4 h-4 text-cyan-400" />
+            <h3 class="text-sm font-semibold text-white">日环比变化</h3>
+            <span class="text-[10px] text-slate-500">今日 vs 昨日</span>
+          </div>
+          <div class="space-y-3">
+            <div class="flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/[0.05]">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center"><Zap class="w-4 h-4 text-cyan-400" /></div>
+                <span class="text-sm text-slate-300">调用次数</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <component :is="trendIcon(dayOverDay.calls)" :class="['w-4 h-4', trendColor(dayOverDay.calls)]" />
+                <span :class="['text-sm font-semibold', trendColor(dayOverDay.calls)]">{{ Math.abs(dayOverDay.calls) }}%</span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/[0.05]">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center"><Hash class="w-4 h-4 text-amber-400" /></div>
+                <span class="text-sm text-slate-300">Token 消耗</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <component :is="trendIcon(dayOverDay.tokens)" :class="['w-4 h-4', trendColor(dayOverDay.tokens)]" />
+                <span :class="['text-sm font-semibold', trendColor(dayOverDay.tokens)]">{{ Math.abs(dayOverDay.tokens) }}%</span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/[0.05]">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center"><Wallet class="w-4 h-4 text-emerald-400" /></div>
+                <span class="text-sm text-slate-300">费用支出</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <component :is="trendIcon(dayOverDay.cost)" :class="['w-4 h-4', trendColor(dayOverDay.cost)]" />
+                <span :class="['text-sm font-semibold', trendColor(dayOverDay.cost)]">{{ Math.abs(dayOverDay.cost) }}%</span>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      <!-- Stats Cards -->
-      <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
-        <div v-for="card in statCards" :key="card.label" class="glass-card p-4 md:p-6 glow-border">
-          <div class="flex items-start justify-between">
+        <!-- 效率指标 -->
+        <div class="glass-card rounded-2xl p-5">
+          <div class="flex items-center gap-2 mb-4">
+            <Gauge class="w-4 h-4 text-amber-400" />
+            <h3 class="text-sm font-semibold text-white">效率指标</h3>
+          </div>
+          <div class="space-y-4">
+            <!-- 平均每次输入 -->
             <div>
-              <p class="text-xs md:text-sm text-slate-400">{{ card.label }}</p>
-              <p class="text-lg md:text-2xl font-bold text-white mt-1 md:mt-2">{{ card.value }}</p>
-              <p v-if="card.sub" class="text-xs text-slate-500 mt-0.5 md:mt-1">{{ card.sub }}</p>
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs text-slate-400">平均每次输入</span>
+                <span class="text-xs text-cyan-400 font-medium">{{ efficiency.avgInput.toLocaleString() }} tokens</span>
+              </div>
+              <div class="h-2 bg-white/5 rounded-full overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-cyan-600 to-cyan-400 transition-all duration-700" :style="{ width: Math.min(100, efficiency.avgInput / 500 * 100) + '%' }"></div>
+              </div>
             </div>
-            <div :class="['w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center', colorMap[card.color].bg]">
-              <component :is="card.icon" :class="['w-4 h-4 md:w-5 md:h-5', colorMap[card.color].text]" />
+            <!-- 平均每次输出 -->
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs text-slate-400">平均每次输出</span>
+                <span class="text-xs text-emerald-400 font-medium">{{ efficiency.avgOutput.toLocaleString() }} tokens</span>
+              </div>
+              <div class="h-2 bg-white/5 rounded-full overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-700" :style="{ width: Math.min(100, efficiency.avgOutput / 500 * 100) + '%' }"></div>
+              </div>
+            </div>
+            <!-- 输出占比 -->
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs text-slate-400">输出 Token 占比</span>
+                <span class="text-xs text-amber-400 font-medium">{{ efficiency.outputRatio }}%</span>
+              </div>
+              <div class="h-2 bg-white/5 rounded-full overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-amber-600 to-amber-400 transition-all duration-700" :style="{ width: efficiency.outputRatio + '%' }"></div>
+              </div>
+            </div>
+            <!-- 单次调用成本 -->
+            <div class="pt-3 border-t border-white/5 grid grid-cols-2 gap-3">
+              <div class="text-center p-2.5 rounded-lg bg-white/[0.03]">
+                <p class="text-[10px] text-slate-500 mb-1">单次调用成本</p>
+                <p class="text-base font-bold text-white">¥{{ efficiency.costPerCall }}</p>
+              </div>
+              <div class="text-center p-2.5 rounded-lg bg-white/[0.03]">
+                <p class="text-[10px] text-slate-500 mb-1">每千Token成本</p>
+                <p class="text-base font-bold text-white">¥{{ efficiency.costPer1kTokens }}</p>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Daily Trend Line Chart -->
-      <div class="glass-card p-4 md:p-6">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-4 md:mb-6 gap-2">
-          <div>
-            <h3 class="text-base md:text-lg font-semibold text-white">每日消耗趋势</h3>
-            <p class="text-xs md:text-sm text-slate-400 mt-1">近7天 Token 消耗</p>
-          </div>
-          <div class="flex items-center gap-4">
-            <div class="flex items-center gap-1.5">
-              <span class="w-3 h-3 rounded-full bg-cyan-500/70"></span>
-              <span class="text-xs text-slate-400">输入</span>
+      <!-- Row 2: 费用趋势柱状图 + Token 分布 -->
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-5">
+        <!-- 费用趋势 -->
+        <div class="lg:col-span-3 glass-card rounded-2xl overflow-hidden">
+          <div class="h-1 bg-gradient-to-r from-emerald-500 via-amber-500 to-cyan-500"></div>
+          <div class="p-5 md:p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center gap-2">
+                <Wallet class="w-4 h-4 text-emerald-400" />
+                <h3 class="text-sm font-semibold text-white">每日费用趋势</h3>
+                <span class="text-[11px] text-slate-500">近7天</span>
+              </div>
+              <div class="text-right">
+                <p class="text-lg font-bold text-emerald-400">¥{{ stats.totalCost.toFixed(2) }}</p>
+                <p class="text-[10px] text-slate-500">7天总费用</p>
+              </div>
             </div>
-            <div class="flex items-center gap-1.5">
-              <span class="w-3 h-3 rounded-full bg-emerald-500/70"></span>
-              <span class="text-xs text-slate-400">输出</span>
+            <div v-if="dailyData.every(d => d.cost === 0)" class="flex items-center justify-center py-12">
+              <div class="text-center">
+                <Wallet class="w-10 h-10 text-slate-600 mx-auto mb-2" />
+                <p class="text-sm text-slate-500">暂无费用数据</p>
+              </div>
             </div>
-          </div>
-        </div>
-        <div v-if="dailyData.every(d => d.total === 0)" class="flex items-center justify-center py-12">
-          <p class="text-sm text-slate-500">暂无消耗数据</p>
-        </div>
-        <div v-else class="w-full overflow-x-auto">
-          <svg :viewBox="`0 0 ${chartWidth} ${chartHeight}`" class="w-full" style="min-width: 500px;" preserveAspectRatio="xMidYMid meet">
-            <!-- Gradient defs -->
-            <defs>
-              <linearGradient id="inputGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#06b6d4" />
-                <stop offset="100%" stop-color="#06b6d4" stop-opacity="0" />
-              </linearGradient>
-              <linearGradient id="outputGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#10b981" />
-                <stop offset="100%" stop-color="#10b981" stop-opacity="0" />
-              </linearGradient>
-            </defs>
-            <!-- Grid lines -->
-            <line
-              v-for="tick in lineYTicks"
-              :key="'grid-' + tick.val"
-              :x1="chartPadding.left"
-              :y1="tick.y"
-              :x2="chartWidth - chartPadding.right"
-              :y2="tick.y"
-              stroke="rgba(148,163,184,0.1)"
-              stroke-dasharray="4 4"
-            />
-            <!-- Y-axis labels -->
-            <text
-              v-for="tick in lineYTicks"
-              :key="'ylabel-' + tick.val"
-              :x="chartPadding.left - 8"
-              :y="tick.y + 4"
-              text-anchor="end"
-              fill="#64748b"
-              font-size="11"
-            >{{ formatTokenShort(tick.val) }}</text>
-            <!-- X-axis labels -->
-            <text
-              v-for="(day, i) in dailyData"
-              :key="'xlabel-' + i"
-              :x="lineX(i)"
-              :y="chartHeight - 8"
-              text-anchor="middle"
-              fill="#64748b"
-              font-size="11"
-            >{{ day.label }}</text>
-            <!-- Area fill for input (smooth) -->
-            <path
-              :d="inputAreaPath"
-              fill="url(#inputGradient)"
-              opacity="0.15"
-            />
-            <!-- Area fill for output (smooth) -->
-            <path
-              :d="outputAreaPath"
-              fill="url(#outputGradient)"
-              opacity="0.15"
-            />
-            <!-- Input line (smooth bezier) -->
-            <path
-              :d="inputLinePath"
-              fill="none"
-              stroke="#06b6d4"
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-            <!-- Output line (smooth bezier) -->
-            <path
-              :d="outputLinePath"
-              fill="none"
-              stroke="#10b981"
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-            <!-- Input data points -->
-            <g v-for="(day, i) in dailyData" :key="'ip-' + i">
-              <circle
-                :cx="lineX(i)"
-                :cy="lineY(day.input)"
-                r="4"
-                fill="#0e1629"
-                stroke="#06b6d4"
-                stroke-width="2"
-                class="cursor-pointer transition-all duration-200"
-                :class="{ 'r-[6px]': hoveredPoint?.dayIndex === i && hoveredPoint?.type === 'input' }"
-                @mouseenter="setHoveredPoint(i, 'input')"
-                @mouseleave="clearHoveredPoint()"
-              />
-              <!-- Tooltip for input -->
-              <g v-if="hoveredPoint?.dayIndex === i && hoveredPoint?.type === 'input'" class="pointer-events-none">
-                <rect
-                  :x="getTooltipX(i) - 48"
-                  :y="getTooltipY(day.input)"
-                  width="96"
-                  height="24"
-                  rx="4"
-                  fill="rgba(15,23,42,0.9)"
-                  stroke="rgba(6,182,212,0.3)"
-                  stroke-width="1"
-                />
-                <text
-                  :x="getTooltipX(i)"
-                  :y="getTooltipY(day.input) + 16"
-                  text-anchor="middle"
-                  fill="#06b6d4"
-                  font-size="11"
-                >输入: {{ formatTokenShort(day.input) }}</text>
-              </g>
-            </g>
-            <!-- Output data points -->
-            <g v-for="(day, i) in dailyData" :key="'op-' + i">
-              <circle
-                :cx="lineX(i)"
-                :cy="lineY(day.output)"
-                r="4"
-                fill="#0e1629"
-                stroke="#10b981"
-                stroke-width="2"
-                class="cursor-pointer transition-all duration-200"
-                :class="{ 'r-[6px]': hoveredPoint?.dayIndex === i && hoveredPoint?.type === 'output' }"
-                @mouseenter="setHoveredPoint(i, 'output')"
-                @mouseleave="clearHoveredPoint()"
-              />
-              <!-- Tooltip for output -->
-              <g v-if="hoveredPoint?.dayIndex === i && hoveredPoint?.type === 'output'" class="pointer-events-none">
-                <rect
-                  :x="getTooltipX(i) - 48"
-                  :y="getTooltipY(day.output)"
-                  width="96"
-                  height="24"
-                  rx="4"
-                  fill="rgba(15,23,42,0.9)"
-                  stroke="rgba(16,185,129,0.3)"
-                  stroke-width="1"
-                />
-                <text
-                  :x="getTooltipX(i)"
-                  :y="getTooltipY(day.output) + 16"
-                  text-anchor="middle"
-                  fill="#10b981"
-                  font-size="11"
-                >输出: {{ formatTokenShort(day.output) }}</text>
-              </g>
-            </g>
-          </svg>
-        </div>
-      </div>
-
-      <!-- Donut Chart + Summary Row -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-        <!-- Donut Chart -->
-        <div class="glass-card p-4 md:p-6 flex flex-col items-center justify-center">
-          <h3 class="text-base md:text-lg font-semibold text-white mb-4 md:mb-6 self-start">Token 分布</h3>
-          <div v-if="donutData.total === 0" class="flex items-center justify-center py-12">
-            <p class="text-sm text-slate-500">暂无数据</p>
-          </div>
-          <template v-else>
-            <div class="relative">
-              <svg width="180" height="180" :viewBox="'0 0 180 180'">
-                <!-- Background circle -->
-                <circle
-                  cx="90" cy="90"
-                  :r="donutRadius"
-                  fill="none"
-                  stroke="rgba(148,163,184,0.08)"
-                  :stroke-width="donutStroke"
-                />
-                <!-- Input arc -->
-                <circle
-                  cx="90" cy="90"
-                  :r="donutRadius"
-                  fill="none"
-                  stroke="#06b6d4"
-                  :stroke-width="donutStroke"
-                  :stroke-dasharray="donutData.inputDasharray"
-                  :stroke-dashoffset="donutData.inputOffset"
-                  stroke-linecap="round"
-                  transform="rotate(-90 90 90)"
-                  class="transition-all duration-700"
-                />
-                <!-- Output arc -->
-                <circle
-                  cx="90" cy="90"
-                  :r="donutRadius"
-                  fill="none"
-                  stroke="#10b981"
-                  :stroke-width="donutStroke"
-                  :stroke-dasharray="donutData.outputDasharray"
-                  :stroke-dashoffset="donutData.outputOffset"
-                  stroke-linecap="round"
-                  transform="rotate(-90 90 90)"
-                  class="transition-all duration-700"
-                />
+            <div v-else class="w-full overflow-x-auto">
+              <svg :viewBox="`0 0 ${barChartWidth} ${barChartHeight}`" class="w-full" style="min-width: 400px;" preserveAspectRatio="xMidYMid meet">
+                <defs>
+                  <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#10b981" stop-opacity="0.8" />
+                    <stop offset="100%" stop-color="#10b981" stop-opacity="0.2" />
+                  </linearGradient>
+                </defs>
+                <!-- Grid lines -->
+                <line v-for="i in 4" :key="'bg-' + i" :x1="barPadding.left" :y1="barPadding.top + (i - 1) * barPlotH / 3" :x2="barChartWidth - barPadding.right" :y2="barPadding.top + (i - 1) * barPlotH / 3" stroke="rgba(148,163,184,0.06)" />
+                <!-- Y labels -->
+                <text v-for="i in 4" :key="'by-' + i" :x="barPadding.left - 6" :y="barPadding.top + (i - 1) * barPlotH / 3 + 4" text-anchor="end" fill="#475569" font-size="9">¥{{ ((barMaxCost - (i - 1) * barMaxCost / 3)).toFixed(1) }}</text>
+                <!-- Bars -->
+                <g v-for="(day, i) in dailyData" :key="'bar-' + i">
+                  <rect
+                    :x="barX(i)"
+                    :y="barY(day.cost)"
+                    :width="barW()"
+                    :height="Math.max(0, barH(day.cost))"
+                    :fill="day.isToday ? 'url(#barGrad)' : 'rgba(16,185,129,0.25)'"
+                    :rx="day.cost > 0 ? 4 : 0"
+                    class="transition-all duration-300"
+                  />
+                  <!-- Cost label on bar -->
+                  <text
+                    v-if="day.cost > 0"
+                    :x="barX(i) + barW() / 2"
+                    :y="barY(day.cost) - 4"
+                    text-anchor="middle"
+                    :fill="day.isToday ? '#10b981' : '#64748b'"
+                    font-size="9"
+                    font-weight="500"
+                  >¥{{ day.cost.toFixed(2) }}</text>
+                  <!-- X label -->
+                  <text
+                    :x="barX(i) + barW() / 2"
+                    :y="barChartHeight - 6"
+                    text-anchor="middle"
+                    :fill="day.isToday ? '#10b981' : '#475569'"
+                    :font-weight="day.isToday ? '600' : '400'"
+                    font-size="10"
+                  >{{ day.isToday ? '今日' : day.label }}</text>
+                </g>
               </svg>
-              <!-- Center text -->
-              <div class="absolute inset-0 flex flex-col items-center justify-center">
-                <span class="text-xl font-bold text-white">{{ formatTokenShort(donutData.total) }}</span>
-                <span class="text-xs text-slate-400 mt-0.5">总 Token</span>
-              </div>
             </div>
-            <!-- Legend -->
-            <div class="flex items-center gap-6 mt-4 md:mt-6">
-              <div class="flex items-center gap-2">
-                <span class="w-3 h-3 rounded-full bg-cyan-500"></span>
-                <span class="text-sm text-slate-300">输入</span>
-                <span class="text-sm text-cyan-400 font-medium">{{ (donutData.inputRatio * 100).toFixed(1) }}%</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
-                <span class="text-sm text-slate-300">输出</span>
-                <span class="text-sm text-emerald-400 font-medium">{{ (donutData.outputRatio * 100).toFixed(1) }}%</span>
-              </div>
-            </div>
-          </template>
+          </div>
         </div>
 
-        <!-- Quick Summary Cards -->
-        <div class="lg:col-span-2 glass-card p-4 md:p-6">
-          <h3 class="text-base md:text-lg font-semibold text-white mb-4 md:mb-6">消耗概览</h3>
-          <div class="grid grid-cols-2 gap-3 md:gap-4">
-            <div class="rounded-xl bg-cyan-500/5 border border-cyan-500/10 p-3 md:p-4">
-              <p class="text-xs md:text-sm text-slate-400">输入 Token</p>
-              <p class="text-lg md:text-2xl font-bold text-cyan-400 mt-1 md:mt-2">{{ stats.totalInput.toLocaleString() }}</p>
-              <div class="mt-2 md:mt-3 h-1.5 rounded-full bg-slate-700/50 overflow-hidden">
-                <div
-                  class="h-full rounded-full bg-gradient-to-r from-cyan-500 to-cyan-400 transition-all duration-700"
-                  :style="{ width: donutData.total ? (stats.totalInput / donutData.total * 100) + '%' : '0%' }"
-                ></div>
+        <!-- Token 分布 -->
+        <div class="glass-card rounded-2xl p-5 flex flex-col">
+          <div class="flex items-center gap-2 mb-4">
+            <PieChart class="w-4 h-4 text-cyan-400" />
+            <h3 class="text-sm font-semibold text-white">Token 分布</h3>
+          </div>
+          <div class="flex-1 flex flex-col items-center justify-center">
+            <div v-if="(stats.totalInput + stats.totalOutput) === 0" class="py-8">
+              <p class="text-xs text-slate-500">暂无数据</p>
+            </div>
+            <template v-else>
+              <div class="relative mb-4">
+                <svg width="140" height="140" viewBox="0 0 140 140">
+                  <circle cx="70" cy="70" r="50" fill="none" stroke="rgba(148,163,184,0.06)" stroke-width="12" />
+                  <circle cx="70" cy="70" r="50" fill="none" stroke="#06b6d4" stroke-width="12"
+                    :stroke-dasharray="(stats.totalInput / (stats.totalInput + stats.totalOutput)) * 314.16 + ' ' + 314.16"
+                    stroke-linecap="round" transform="rotate(-90 70 70)"
+                    style="filter: drop-shadow(0 0 3px rgba(6,182,212,0.3))"
+                  />
+                  <circle cx="70" cy="70" r="50" fill="none" stroke="#10b981" stroke-width="12"
+                    :stroke-dasharray="(stats.totalOutput / (stats.totalInput + stats.totalOutput)) * 314.16 + ' ' + 314.16"
+                    :stroke-dashoffset="-(stats.totalInput / (stats.totalInput + stats.totalOutput)) * 314.16"
+                    stroke-linecap="round" transform="rotate(-90 70 70)"
+                    style="filter: drop-shadow(0 0 3px rgba(16,185,129,0.3))"
+                  />
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center">
+                  <span class="text-base font-bold text-white">{{ formatTokenShort(stats.totalInput + stats.totalOutput) }}</span>
+                  <span class="text-[10px] text-slate-400">总 Token</span>
+                </div>
               </div>
-            </div>
-            <div class="rounded-xl bg-emerald-500/5 border border-emerald-500/10 p-3 md:p-4">
-              <p class="text-xs md:text-sm text-slate-400">输出 Token</p>
-              <p class="text-lg md:text-2xl font-bold text-emerald-400 mt-1 md:mt-2">{{ stats.totalOutput.toLocaleString() }}</p>
-              <div class="mt-2 md:mt-3 h-1.5 rounded-full bg-slate-700/50 overflow-hidden">
-                <div
-                  class="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-700"
-                  :style="{ width: donutData.total ? (stats.totalOutput / donutData.total * 100) + '%' : '0%' }"
-                ></div>
+              <div class="w-full space-y-2">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-cyan-500"></span>
+                    <span class="text-xs text-slate-400">输入</span>
+                  </div>
+                  <div class="text-right">
+                    <span class="text-xs text-cyan-400 font-medium">{{ formatTokenShort(stats.totalInput) }}</span>
+                    <span class="text-[10px] text-slate-500 ml-1">{{ (stats.totalInput / (stats.totalInput + stats.totalOutput) * 100).toFixed(0) }}%</span>
+                  </div>
+                </div>
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+                    <span class="text-xs text-slate-400">输出</span>
+                  </div>
+                  <div class="text-right">
+                    <span class="text-xs text-emerald-400 font-medium">{{ formatTokenShort(stats.totalOutput) }}</span>
+                    <span class="text-[10px] text-slate-500 ml-1">{{ (stats.totalOutput / (stats.totalInput + stats.totalOutput) * 100).toFixed(0) }}%</span>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div class="rounded-xl bg-amber-500/5 border border-amber-500/10 p-3 md:p-4">
-              <p class="text-xs md:text-sm text-slate-400">平均每次输入</p>
-              <p class="text-lg md:text-2xl font-bold text-amber-400 mt-1 md:mt-2">{{ stats.count ? Math.round(stats.totalInput / stats.count).toLocaleString() : '0' }}</p>
-              <p class="text-xs text-slate-500 mt-0.5 md:mt-1">tokens / 次</p>
-            </div>
-            <div class="rounded-xl bg-purple-500/5 border border-purple-500/10 p-3 md:p-4">
-              <p class="text-xs md:text-sm text-slate-400">平均每次输出</p>
-              <p class="text-lg md:text-2xl font-bold text-purple-400 mt-1 md:mt-2">{{ stats.count ? Math.round(stats.totalOutput / stats.count).toLocaleString() : '0' }}</p>
-              <p class="text-xs text-slate-500 mt-0.5 md:mt-1">tokens / 次</p>
-            </div>
+            </template>
           </div>
         </div>
       </div>
 
-      <!-- Usage Detail Table -->
-      <div class="glass-card p-4 md:p-6">
-        <h3 class="text-base md:text-lg font-semibold text-white mb-4 md:mb-6">用量明细</h3>
-        <div v-if="loading" class="flex items-center justify-center py-8">
-          <div class="w-8 h-8 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin"></div>
+      <!-- Row 3: 每日汇总 -->
+      <div class="glass-card rounded-2xl p-5 md:p-6">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <CalendarDays class="w-4 h-4 text-cyan-400" />
+            <h3 class="text-sm font-semibold text-white">每日汇总</h3>
+          </div>
+          <span class="text-[11px] text-slate-500">近7天</span>
         </div>
-        <div v-else-if="usageRecords.length === 0" class="text-slate-500 text-center py-8">暂无数据</div>
+        <div v-if="dailySummary.length === 0" class="text-center py-8">
+          <Activity class="w-8 h-8 text-slate-600 mx-auto mb-2" />
+          <p class="text-xs text-slate-500">暂无消耗数据</p>
+        </div>
         <div v-else>
-          <div class="overflow-x-auto">
+          <!-- Desktop table -->
+          <div class="hidden md:block overflow-x-auto">
             <table class="w-full">
               <thead>
-                <tr class="border-b border-white/5">
-                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">时间</th>
-                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">输入Token</th>
-                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">输出Token</th>
-                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">费用</th>
-                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">详情</th>
+                <tr class="border-b border-white/[0.06]">
+                  <th class="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider pb-3 pl-2">日期</th>
+                  <th class="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider pb-3">调用</th>
+                  <th class="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider pb-3">输入 Token</th>
+                  <th class="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider pb-3">输出 Token</th>
+                  <th class="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider pb-3">总 Token</th>
+                  <th class="text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider pb-3 pr-2">费用</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-white/5">
-                <tr v-for="record in pagedRecords" :key="record.id" class="hover:bg-white/5 transition-colors">
-                  <td class="py-4 text-sm text-slate-500">{{ record.createdAt ? new Date(record.createdAt).toLocaleString() : '-' }}</td>
-                  <td class="py-4 text-sm text-cyan-400 font-medium">{{ record.inputTokens?.toLocaleString() || '0' }}</td>
-                  <td class="py-4 text-sm text-amber-400 font-medium">{{ record.outputTokens?.toLocaleString() || '0' }}</td>
-                  <td class="py-4 text-sm font-medium text-emerald-400">¥{{ Math.abs(Number(record.amount || 0)).toFixed(4) }}</td>
-                  <td class="py-4 text-sm text-slate-400 max-w-xs truncate" :title="record.detail">{{ record.detail || '-' }}</td>
+              <tbody class="divide-y divide-white/[0.03]">
+                <tr
+                  v-for="day in dailySummary"
+                  :key="day.label"
+                  class="hover:bg-white/[0.03] transition-colors"
+                  :class="day.isToday ? 'bg-cyan-500/[0.04]' : ''"
+                >
+                  <td class="py-3 pl-2 text-sm whitespace-nowrap">
+                    <span :class="day.isToday ? 'text-cyan-400 font-medium' : 'text-slate-400'">{{ day.isToday ? '今日' : day.label }}</span>
+                  </td>
+                  <td class="py-3 text-sm text-white font-medium">{{ day.calls }}</td>
+                  <td class="py-3 text-sm text-cyan-400">{{ formatTokenShort(day.input) }}</td>
+                  <td class="py-3 text-sm text-emerald-400">{{ formatTokenShort(day.output) }}</td>
+                  <td class="py-3 text-sm text-slate-300 font-medium">{{ formatTokenShort(day.total) }}</td>
+                  <td class="py-3 pr-2 text-sm text-emerald-400 font-medium text-right">¥{{ day.cost.toFixed(2) }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <!-- Pagination -->
-          <div v-if="usageRecords.length > pageSize" class="flex items-center justify-between pt-2">
-            <span class="text-sm text-slate-400">共 {{ usageRecords.length }} 条记录</span>
-            <div class="flex items-center gap-1">
-              <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1"
-                class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-                <ChevronLeft class="w-4 h-4" />
-              </button>
-              <template v-for="p in totalPages" :key="p">
-                <button @click="goToPage(p)"
-                  :class="['w-8 h-8 rounded-lg text-sm transition-colors', p === currentPage ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-300 hover:bg-white/10']">
-                  {{ p }}
-                </button>
-              </template>
-              <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages"
-                class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-                <ChevronRight class="w-4 h-4" />
-              </button>
+          <!-- Mobile cards -->
+          <div class="block md:hidden space-y-2.5">
+            <div
+              v-for="day in dailySummary"
+              :key="day.label"
+              :class="[
+                'rounded-xl p-3.5 border',
+                day.isToday ? 'bg-cyan-500/[0.06] border-cyan-500/15' : 'bg-white/[0.02] border-white/5'
+              ]"
+            >
+              <div class="flex items-center justify-between mb-2">
+                <span :class="['text-xs font-medium', day.isToday ? 'text-cyan-400' : 'text-slate-400']">
+                  {{ day.isToday ? '今日' : day.label }}
+                </span>
+                <span class="text-sm text-emerald-400 font-medium">¥{{ day.cost.toFixed(2) }}</span>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p class="text-[10px] text-slate-500">调用</p>
+                  <p class="text-sm text-white font-medium">{{ day.calls }}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] text-slate-500">输入</p>
+                  <p class="text-sm text-cyan-400 font-medium">{{ formatTokenShort(day.input) }}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] text-slate-500">输出</p>
+                  <p class="text-sm text-emerald-400 font-medium">{{ formatTokenShort(day.output) }}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>

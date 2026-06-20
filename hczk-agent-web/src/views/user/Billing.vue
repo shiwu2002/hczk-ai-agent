@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useApiStore } from '@/stores/api'
-import { Wallet, Zap, CreditCard, Receipt, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { Wallet, Zap, CreditCard, Receipt, ChevronLeft, ChevronRight, FileText, ArrowUpRight, ArrowDownRight, TrendingUp, Calendar } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 const api = useApiStore()
@@ -10,9 +10,8 @@ const bills = ref([])
 const loading = ref(false)
 const typeFilter = ref('all')
 
-// Pagination
 const currentPage = ref(1)
-const pageSize = 15
+const pageSize = 5
 
 onMounted(async () => {
   loading.value = true
@@ -21,35 +20,33 @@ onMounted(async () => {
   loading.value = false
 })
 
+// 统计
 const billStats = computed(() => {
-  let totalRecharge = 0, totalUsage = 0
+  let totalRecharge = 0, totalUsage = 0, rechargeCount = 0, usageCount = 0
   for (const b of bills.value) {
     const amt = Number(b.amount || 0)
-    if (b.type === 'RECHARGE') totalRecharge += amt
-    else totalUsage += Math.abs(amt)
+    if (b.type === 'RECHARGE') { totalRecharge += amt; rechargeCount++ }
+    else { totalUsage += Math.abs(amt); usageCount++ }
   }
-  return {
-    totalRecharge,
-    totalUsage,
-    balance: authStore.currentUser?.balance || 0,
-    count: bills.value.length
-  }
+  return { totalRecharge, totalUsage, rechargeCount, usageCount, balance: authStore.currentUser?.balance || 0 }
 })
 
-const statCards = computed(() => [
-  { label: '总充值', value: '¥' + billStats.value.totalRecharge.toFixed(2), icon: Wallet, color: 'emerald' },
-  { label: '总消耗', value: '¥' + billStats.value.totalUsage.toFixed(2), icon: Zap, color: 'orange' },
-  { label: '当前余额', value: '¥' + Number(billStats.value.balance).toFixed(2), icon: CreditCard, color: 'cyan' },
-  { label: '交易笔数', value: billStats.value.count.toLocaleString(), sub: '笔', icon: Receipt, color: 'purple' }
-])
+// 本月统计
+const monthlyStats = computed(() => {
+  const now = new Date()
+  const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  let recharge = 0, usage = 0
+  for (const b of bills.value) {
+    if (b.createdAt && b.createdAt.startsWith(monthStr)) {
+      const amt = Number(b.amount || 0)
+      if (b.type === 'RECHARGE') recharge += amt
+      else usage += Math.abs(amt)
+    }
+  }
+  return { recharge, usage, net: recharge - usage }
+})
 
-const colorMap = {
-  emerald: { bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
-  orange: { bg: 'bg-orange-500/10', text: 'text-orange-400' },
-  cyan: { bg: 'bg-cyan-500/10', text: 'text-cyan-400' },
-  purple: { bg: 'bg-purple-500/10', text: 'text-purple-400' }
-}
-
+// 筛选
 const filteredBills = computed(() => {
   if (typeFilter.value === 'all') return bills.value
   return bills.value.filter(b => b.type === typeFilter.value)
@@ -61,7 +58,7 @@ const filterOptions = [
   { value: 'TOKEN_USAGE', label: '消耗' }
 ]
 
-// Pagination computed
+// 分页
 const totalPages = computed(() => Math.ceil(filteredBills.value.length / pageSize))
 const pagedBills = computed(() => {
   const start = (currentPage.value - 1) * pageSize
@@ -71,6 +68,19 @@ const pagedBills = computed(() => {
 function goToPage(page) {
   if (page < 1 || page > totalPages.value) return
   currentPage.value = page
+}
+
+// 时间格式
+function formatTime(dateStr) {
+  if (!dateStr) return '-'
+  const d = new Date(dateStr)
+  const now = new Date()
+  const diff = now - d
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
+  if (diff < 172800000) return '昨天'
+  return d.toLocaleDateString()
 }
 </script>
 
@@ -85,103 +95,168 @@ function goToPage(page) {
     </div>
 
     <template v-else>
-      <div>
-        <h1 class="text-2xl font-bold text-white">账单明细</h1>
-        <p class="text-slate-400 mt-1">查看您的消费与充值记录</p>
-      </div>
-
-      <!-- Summary Stats Cards -->
-      <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
-        <div v-for="card in statCards" :key="card.label" class="glass-card p-4 md:p-6 glow-border">
-          <div class="flex items-start justify-between">
-            <div>
-              <p class="text-xs md:text-sm text-slate-400">{{ card.label }}</p>
-              <p class="text-lg md:text-2xl font-bold text-white mt-1 md:mt-2">{{ card.value }}</p>
-              <p v-if="card.sub" class="text-xs text-slate-500 mt-0.5 md:mt-1">{{ card.sub }}</p>
+      <!-- 余额卡片 + 本月概览 -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <!-- 余额卡片 -->
+        <div class="relative rounded-2xl overflow-hidden">
+          <div class="absolute inset-0 bg-gradient-to-br from-emerald-600/20 via-cyan-600/10 to-transparent"></div>
+          <div class="relative p-6">
+            <div class="flex items-center gap-2 mb-4">
+              <Wallet class="w-5 h-5 text-emerald-400" />
+              <span class="text-sm text-slate-300">账户余额</span>
             </div>
-            <div :class="['w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center', colorMap[card.color].bg]">
-              <component :is="card.icon" :class="['w-4 h-4 md:w-5 md:h-5', colorMap[card.color].text]" />
+            <p class="text-3xl font-bold text-white mb-1">¥{{ Number(billStats.balance).toFixed(2) }}</p>
+            <div class="flex items-center gap-4 mt-4">
+              <div class="flex items-center gap-1.5">
+                <ArrowUpRight class="w-3.5 h-3.5 text-emerald-400" />
+                <span class="text-xs text-slate-400">充值 ¥{{ billStats.totalRecharge.toFixed(2) }}</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <ArrowDownRight class="w-3.5 h-3.5 text-orange-400" />
+                <span class="text-xs text-slate-400">消耗 ¥{{ billStats.totalUsage.toFixed(2) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 本月概览 -->
+        <div class="lg:col-span-2 glass-card rounded-2xl p-5">
+          <div class="flex items-center gap-2 mb-4">
+            <Calendar class="w-4 h-4 text-cyan-400" />
+            <h3 class="text-sm font-semibold text-white">本月概览</h3>
+          </div>
+          <div class="grid grid-cols-3 gap-4">
+            <div class="p-3.5 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/10">
+              <p class="text-[11px] text-slate-400 mb-1">本月充值</p>
+              <p class="text-xl font-bold text-emerald-400">¥{{ monthlyStats.recharge.toFixed(2) }}</p>
+            </div>
+            <div class="p-3.5 rounded-xl bg-orange-500/[0.06] border border-orange-500/10">
+              <p class="text-[11px] text-slate-400 mb-1">本月消耗</p>
+              <p class="text-xl font-bold text-orange-400">¥{{ monthlyStats.usage.toFixed(2) }}</p>
+            </div>
+            <div :class="['p-3.5 rounded-xl border', monthlyStats.net >= 0 ? 'bg-cyan-500/[0.06] border-cyan-500/10' : 'bg-red-500/[0.06] border-red-500/10']">
+              <p class="text-[11px] text-slate-400 mb-1">本月净额</p>
+              <p :class="['text-xl font-bold', monthlyStats.net >= 0 ? 'text-cyan-400' : 'text-red-400']">
+                {{ monthlyStats.net >= 0 ? '+' : '' }}¥{{ monthlyStats.net.toFixed(2) }}
+              </p>
+            </div>
+          </div>
+          <!-- 交易笔数 -->
+          <div class="flex items-center gap-6 mt-3 pt-3 border-t border-white/5">
+            <div class="flex items-center gap-2">
+              <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+              <span class="text-xs text-slate-400">充值 {{ billStats.rechargeCount }} 笔</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-2 h-2 rounded-full bg-orange-400"></div>
+              <span class="text-xs text-slate-400">消耗 {{ billStats.usageCount }} 笔</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-2 h-2 rounded-full bg-slate-400"></div>
+              <span class="text-xs text-slate-400">共 {{ billStats.rechargeCount + billStats.usageCount }} 笔</span>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Bill Records -->
-      <div class="glass-card p-4 md:p-6">
-        <div class="flex items-center justify-between mb-4 md:mb-6">
-          <h3 class="text-base md:text-lg font-semibold text-white">流水记录</h3>
+      <!-- 流水记录 -->
+      <div class="glass-card rounded-2xl overflow-hidden">
+        <div class="px-5 md:px-6 pt-5 pb-3 border-b border-white/5">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-white">流水记录</h3>
+            <!-- Type Filter -->
+            <div class="inline-flex bg-white/5 rounded-lg p-0.5">
+              <button
+                v-for="opt in filterOptions"
+                :key="opt.value"
+                @click="typeFilter = opt.value; currentPage = 1"
+                :class="['px-3 py-1 text-xs rounded-md transition-all', typeFilter === opt.value ? 'bg-emerald-500/15 text-emerald-400' : 'text-slate-400 hover:text-slate-300']"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+          </div>
         </div>
 
-        <!-- Type Filter -->
-        <div class="flex gap-2 mb-4 md:mb-6">
-          <button
-            v-for="opt in filterOptions"
-            :key="opt.value"
-            @click="typeFilter = opt.value; currentPage = 1"
-            :class="['px-3 md:px-4 py-1.5 text-xs md:text-sm rounded-full transition-all', typeFilter === opt.value ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-slate-400 border border-white/5 hover:bg-white/10']"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
+        <div class="p-4 md:p-6">
+          <!-- Empty -->
+          <div v-if="filteredBills.length === 0" class="flex flex-col items-center justify-center py-16">
+            <FileText class="w-10 h-10 text-slate-600 mb-3" />
+            <p class="text-sm text-slate-500">暂无记录</p>
+          </div>
 
-        <div v-if="loading" class="flex items-center justify-center py-8">
-          <div class="w-8 h-8 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin"></div>
-        </div>
-        <div v-else-if="filteredBills.length === 0" class="flex flex-col items-center justify-center py-12">
-          <Receipt class="w-12 h-12 text-slate-600 mb-3" />
-          <p class="text-sm text-slate-500">暂无记录</p>
-        </div>
-        <div v-else>
-          <div class="overflow-x-auto">
-            <table class="w-full">
-              <thead>
-                <tr class="border-b border-white/5">
-                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">类型</th>
-                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">输入Token</th>
-                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">输出Token</th>
-                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">金额</th>
-                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">余额</th>
-                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">详情</th>
-                  <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">时间</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-white/5">
-                <tr v-for="bill in pagedBills" :key="bill.id" class="hover:bg-white/5 transition-colors">
-                  <td class="py-4">
-                    <span :class="['px-2 py-1 text-xs rounded-full', bill.type === 'RECHARGE' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-orange-500/10 text-orange-400']">
+          <div v-else>
+            <!-- Desktop Table -->
+            <div class="hidden md:block overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="border-b border-white/[0.06]">
+                    <th class="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider pb-3 pl-2">类型</th>
+                    <th class="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider pb-3">金额</th>
+                    <th class="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider pb-3">余额</th>
+                    <th class="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider pb-3">Token</th>
+                    <th class="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider pb-3">详情</th>
+                    <th class="text-right text-[11px] font-semibold text-slate-500 uppercase tracking-wider pb-3 pr-2">时间</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-white/[0.03]">
+                  <tr v-for="(bill, idx) in pagedBills" :key="bill.id" class="hover:bg-white/[0.03] transition-colors" :class="idx % 2 ? 'bg-white/[0.01]' : ''">
+                    <td class="py-3 pl-2">
+                      <span :class="['inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] rounded-md font-medium', bill.type === 'RECHARGE' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-orange-500/10 text-orange-400']">
+                        {{ bill.type === 'RECHARGE' ? '充值' : '消耗' }}
+                      </span>
+                    </td>
+                    <td class="py-3 text-sm font-semibold" :class="bill.amount > 0 ? 'text-emerald-400' : 'text-orange-400'">
+                      {{ bill.amount > 0 ? '+' : '' }}¥{{ Math.abs(Number(bill.amount || 0)).toFixed(2) }}
+                    </td>
+                    <td class="py-3 text-sm text-slate-400">¥{{ Number(bill.balanceAfter || 0).toFixed(2) }}</td>
+                    <td class="py-3 text-sm text-slate-500">
+                      <template v-if="bill.type === 'TOKEN_USAGE'">
+                        <span class="text-cyan-400">{{ bill.inputTokens?.toLocaleString() || '0' }}</span>
+                        <span class="text-slate-600 mx-0.5">/</span>
+                        <span class="text-emerald-400">{{ bill.outputTokens?.toLocaleString() || '0' }}</span>
+                      </template>
+                      <span v-else class="text-slate-600">-</span>
+                    </td>
+                    <td class="py-3 text-sm text-slate-500 max-w-[200px] truncate" :title="bill.detail">{{ bill.detail || '-' }}</td>
+                    <td class="py-3 pr-2 text-sm text-slate-500 text-right whitespace-nowrap">{{ formatTime(bill.createdAt) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Mobile Cards -->
+            <div class="md:hidden space-y-2">
+              <div v-for="bill in pagedBills" :key="bill.id" class="rounded-xl bg-white/[0.02] border border-white/5 p-3">
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-2">
+                    <span :class="['inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-md font-medium', bill.type === 'RECHARGE' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-orange-500/10 text-orange-400']">
                       {{ bill.type === 'RECHARGE' ? '充值' : '消耗' }}
                     </span>
-                  </td>
-                  <td class="py-4 text-sm text-cyan-400 font-medium">{{ bill.type === 'TOKEN_USAGE' ? (bill.inputTokens?.toLocaleString() || '0') : '-' }}</td>
-                  <td class="py-4 text-sm text-amber-400 font-medium">{{ bill.type === 'TOKEN_USAGE' ? (bill.outputTokens?.toLocaleString() || '0') : '-' }}</td>
-                  <td class="py-4 text-sm font-medium" :class="bill.amount > 0 ? 'text-emerald-400' : 'text-orange-400'">
-                    {{ bill.amount > 0 ? '+' : '' }}{{ Number(bill.amount || 0).toFixed(2) }}
-                  </td>
-                  <td class="py-4 text-sm text-slate-300">¥{{ Number(bill.balanceAfter || 0).toFixed(2) }}</td>
-                  <td class="py-4 text-sm text-slate-400 max-w-xs truncate" :title="bill.detail">{{ bill.detail || '-' }}</td>
-                  <td class="py-4 text-sm text-slate-500">{{ bill.createdAt ? new Date(bill.createdAt).toLocaleString() : '-' }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <!-- Pagination -->
-          <div v-if="filteredBills.length > pageSize" class="flex items-center justify-between pt-2">
-            <span class="text-sm text-slate-400">共 {{ filteredBills.length }} 条记录</span>
-            <div class="flex items-center gap-1">
-              <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1"
-                class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-                <ChevronLeft class="w-4 h-4" />
-              </button>
-              <template v-for="p in totalPages" :key="p">
-                <button @click="goToPage(p)"
-                  :class="['w-8 h-8 rounded-lg text-sm transition-colors', p === currentPage ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-300 hover:bg-white/10']">
-                  {{ p }}
-                </button>
-              </template>
-              <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages"
-                class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-                <ChevronRight class="w-4 h-4" />
-              </button>
+                    <span class="text-[11px] text-slate-500">{{ formatTime(bill.createdAt) }}</span>
+                  </div>
+                  <span class="text-sm font-semibold" :class="bill.amount > 0 ? 'text-emerald-400' : 'text-orange-400'">
+                    {{ bill.amount > 0 ? '+' : '' }}¥{{ Math.abs(Number(bill.amount || 0)).toFixed(2) }}
+                  </span>
+                </div>
+                <div v-if="bill.type === 'TOKEN_USAGE'" class="flex items-center gap-3 text-[11px] text-slate-500">
+                  <span>输入 <span class="text-cyan-400">{{ bill.inputTokens?.toLocaleString() || '0' }}</span></span>
+                  <span>输出 <span class="text-emerald-400">{{ bill.outputTokens?.toLocaleString() || '0' }}</span></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pagination -->
+            <div v-if="filteredBills.length > pageSize" class="flex items-center justify-between pt-4 mt-3 border-t border-white/[0.04]">
+              <span class="text-xs text-slate-500">{{ currentPage }} / {{ totalPages }} 页</span>
+              <div class="flex items-center gap-1">
+                <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1" class="p-1.5 rounded-lg bg-white/5 text-slate-400 hover:bg-white/10 disabled:opacity-25 disabled:cursor-not-allowed transition-all"><ChevronLeft class="w-4 h-4" /></button>
+                <template v-for="p in totalPages" :key="p">
+                  <button v-if="totalPages <= 7 || Math.abs(p - currentPage) < 3 || p === 1 || p === totalPages" @click="goToPage(p)" :class="['w-8 h-8 rounded-lg text-xs font-medium transition-all', p === currentPage ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/5 text-slate-400 hover:bg-white/10']">{{ p }}</button>
+                  <span v-else-if="p === currentPage - 2 || p === currentPage + 2" class="text-slate-600 text-xs">...</span>
+                </template>
+                <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages" class="p-1.5 rounded-lg bg-white/5 text-slate-400 hover:bg-white/10 disabled:opacity-25 disabled:cursor-not-allowed transition-all"><ChevronRight class="w-4 h-4" /></button>
+              </div>
             </div>
           </div>
         </div>
