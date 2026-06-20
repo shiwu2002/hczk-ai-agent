@@ -191,6 +191,33 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
         return tool != null ? tool.getSkillId() : null;
     }
 
+    @Override
+    public List<String> validateRequiredParams(String toolName, Map<String, Object> arguments) {
+        List<String> missing = new ArrayList<>();
+        QueryWrapper<ToolDefinition> qw = new QueryWrapper<>();
+        qw.eq("name", toolName).last("LIMIT 1");
+        ToolDefinition tool = toolMapper.selectOne(qw);
+        if (tool == null || tool.getInputSchema() == null || tool.getInputSchema().isBlank()) {
+            return missing;
+        }
+        try {
+            Map<String, Object> schema = objectMapper.readValue(tool.getInputSchema(), Map.class);
+            @SuppressWarnings("unchecked")
+            List<String> required = (List<String>) schema.get("required");
+            if (required != null) {
+                for (String param : required) {
+                    if (arguments == null || !arguments.containsKey(param) || arguments.get(param) == null
+                            || String.valueOf(arguments.get(param)).isBlank()) {
+                        missing.add(param);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("解析工具 {} 的 input_schema 失败: {}", toolName, e.getMessage());
+        }
+        return missing;
+    }
+
     /** 将 ToolDefinition 列表转换为 LLM function_call 格式 */
     private List<Map<String, Object>> convertToolsToLLMFormat(List<ToolDefinition> toolsList, String platformBaseUrl) {
         List<Map<String, Object>> result = new ArrayList<>();

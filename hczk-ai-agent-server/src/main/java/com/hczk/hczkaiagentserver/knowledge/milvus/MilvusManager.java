@@ -125,6 +125,19 @@ public class MilvusManager {
         }
     }
 
+    /**
+     * 检查集合是否存在（不自动创建）
+     * 用于检索/浏览场景，避免因检索不存在的集合而自动创建空集合
+     */
+    public boolean collectionExists(String collectionName) {
+        try {
+            return getClient().hasCollection(HasCollectionReq.builder()
+                    .collectionName(collectionName).build());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private void createCollection(String collectionName) {
         int dim = embeddingProperties.getDimension();
         var schema = CreateCollectionReq.CollectionSchema.builder().build();
@@ -177,7 +190,7 @@ public class MilvusManager {
         log.info("Created Milvus collection: {}", collectionName);
     }
 
-    private void loadCollectionIfNeeded(String collectionName) {
+    public void loadCollectionIfNeeded(String collectionName) {
         try {
             Boolean loaded = getClient().getLoadState(GetLoadStateReq.builder()
                     .collectionName(collectionName).build());

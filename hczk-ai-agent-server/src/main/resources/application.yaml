@@ -81,10 +81,10 @@ knowledge:
     connect-timeout-ms: 10000
     keep-alive-time-ms: 30000
   embedding:
-    base-url: http://192.168.1.3:1234/v1
-    api-key:
-    model: text-embedding-qwen3-embedding
-    dimension: 2560
+    base-url: http://localhost:8000/v1
+    api-key: admin
+    model: Qwen3-VL-Embedding-2B-4bit
+    dimension: 2048
     timeout-ms: 30000
     batch-size: 20
     cache-max-size: 10000
