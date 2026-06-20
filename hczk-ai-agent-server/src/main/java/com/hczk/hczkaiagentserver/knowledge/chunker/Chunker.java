@@ -29,8 +29,29 @@ public class Chunker {
     public static class Chunk {
         private String content;
         private String question;
-        private String chunkType; // "qa" or "prose"
+        private String chunkType; // "qa" / "prose" / "table"
         private int chunkIndex;
+
+        // ===== v11 新增：溯源信息 =====
+        /** 页码（PDF 为实际页码，TXT/DOCX 为章节序号） */
+        @Builder.Default
+        private int pageNumber = 0;
+
+        /** 所属章节标题 */
+        @Builder.Default
+        private String chapter = "";
+
+        /** 关联的上下文页码列表（如跨页表格涉及的多页），格式 "1,2,3" */
+        @Builder.Default
+        private String contextPages = "";
+
+        /** 表格的 Markdown/HTML 结构化表示（仅 chunkType=table 时有值） */
+        @Builder.Default
+        private String tableHtml = "";
+
+        /** 源文件名 */
+        @Builder.Default
+        private String sourceFilename = "";
     }
 
     /**

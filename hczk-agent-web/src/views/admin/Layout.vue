@@ -4,7 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
   LayoutDashboard, Bot, Server, Cpu, KeyRound, Users,
-  Receipt, MessageSquare, Plug, Settings, LogOut, ChevronRight, Shield, Database, FlaskConical
+  Receipt, MessageSquare, Plug, Settings, LogOut, ChevronRight, Shield, Database, FlaskConical,
+  Activity
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -23,6 +24,7 @@ const navItems = [
   { path: '/admin/users', name: '用户管理', icon: Users },
   { path: '/admin/billing', name: '计费管理', icon: Receipt },
   { path: '/admin/chat-logs', name: '对话记录', icon: MessageSquare },
+  { path: '/admin/retrieval-logs', name: '检索监控', icon: Activity },
   { path: '/admin/platforms', name: '平台对接', icon: Plug },
   { path: '/admin/settings', name: '系统设置', icon: Settings }
 ]

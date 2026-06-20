@@ -7,7 +7,8 @@ import { API_BASE } from '@/stores/api'
 import {
   Database, Search, Trash2, X,
   BarChart3, Rocket, AlertCircle, CheckCircle2,
-  Clock, Hash, Eye, ListTree, Users, FileUp
+  Clock, Hash, Eye, ListTree, Users, FileUp,
+  FileText, Bookmark, Layers
 } from 'lucide-vue-next'
 
 const api = useApiStore()
@@ -465,6 +466,26 @@ const tabs = [
                   <span v-if="r.metadata?.chunkType" class="text-xs text-slate-500">{{ r.metadata.chunkType }}</span>
                 </div>
                 <p class="text-sm text-slate-300 whitespace-pre-wrap">{{ r.content }}</p>
+                <!-- v11 溯源信息 -->
+                <div v-if="r.metadata && (r.metadata.pageNumber || r.metadata.chapter || r.metadata.sourceFilename || r.metadata.contextPages)" class="flex flex-wrap items-center gap-2 mt-2">
+                  <span v-if="r.metadata.sourceFilename" class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-blue-500/10 text-blue-400">
+                    <FileText class="w-3 h-3" /> {{ r.metadata.sourceFilename }}
+                  </span>
+                  <span v-if="r.metadata.chapter" class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-purple-500/10 text-purple-400">
+                    <Bookmark class="w-3 h-3" /> {{ r.metadata.chapter }}
+                  </span>
+                  <span v-if="r.metadata.pageNumber" class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-emerald-500/10 text-emerald-400">
+                    <Hash class="w-3 h-3" /> 第 {{ r.metadata.pageNumber }} 页
+                  </span>
+                  <span v-if="r.metadata.contextPages" class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-amber-500/10 text-amber-400">
+                    <Layers class="w-3 h-3" /> 关联页 {{ r.metadata.contextPages }}
+                  </span>
+                </div>
+                <!-- 表格内容 -->
+                <div v-if="r.metadata?.tableHtml" class="mt-2 p-3 rounded-lg bg-white/5 border border-white/10 overflow-x-auto">
+                  <div class="text-xs text-slate-500 mb-1">表格结构：</div>
+                  <div class="text-xs text-slate-300" v-html="r.metadata.tableHtml"></div>
+                </div>
                 <div v-if="r.metadata" class="flex flex-wrap gap-3 mt-2 text-xs text-slate-500">
                   <span v-if="r.metadata.title">标题: {{ r.metadata.title }}</span>
                   <span v-if="r.metadata.source">来源: {{ r.metadata.source }}</span>

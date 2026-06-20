@@ -1,11 +1,13 @@
 package com.hczk.hczkaiagentserver.knowledge.retriever;
 
+import com.hczk.hczkaiagentserver.entity.RetrievalLog;
 import com.hczk.hczkaiagentserver.knowledge.config.EmbeddingProperties;
 import com.hczk.hczkaiagentserver.knowledge.config.RetrieveProperties;
 import com.hczk.hczkaiagentserver.knowledge.dto.RetrieveResponse;
 import com.hczk.hczkaiagentserver.knowledge.embedder.Embedder;
 import com.hczk.hczkaiagentserver.knowledge.milvus.MilvusManager;
 import com.hczk.hczkaiagentserver.knowledge.util.MilvusDataConverter;
+import com.hczk.hczkaiagentserver.mapper.RetrievalLogMapper;
 import io.milvus.v2.service.vector.request.QueryReq;
 import io.milvus.v2.service.vector.request.SearchReq;
 import io.milvus.v2.service.vector.request.UpsertReq;
@@ -31,6 +33,7 @@ public class Retriever {
     private final Embedder embedder;
     private final RetrieveProperties retrieveProperties;
     private final EmbeddingProperties embeddingProperties;
+    private final RetrievalLogMapper retrievalLogMapper;
 
     private static final Pattern KEYWORD_PATTERN = Pattern.compile("[\\u4e00-\\u9fa5]+|[a-zA-Z]+");
 
@@ -45,17 +48,21 @@ public class Retriever {
     public RetrieveResponse retrieve(String agentId, String collectionName, String query, Integer topK) {
         String fullCollectionName = milvusManager.buildCollectionName(agentId, collectionName);
         int k = topK != null ? Math.min(topK, retrieveProperties.getMaxTopK()) : retrieveProperties.getDefaultTopK();
+        long startTime = System.currentTimeMillis();
 
         try {
             milvusManager.ensureCollection(fullCollectionName);
         } catch (Exception e) {
-            return buildFallbackResponse(query, k);
+            RetrieveResponse resp = buildFallbackResponse(query, k);
+            asyncRecordRetrievalLog(agentId, collectionName, query, k, resp, System.currentTimeMillis() - startTime);
+            return resp;
         }
 
         try {
             RetrieveResponse response = hybridSearch(fullCollectionName, query, k);
             if (response != null && !response.getResults().isEmpty()) {
                 asyncRecordHit(fullCollectionName, response.getResults());
+                asyncRecordRetrievalLog(agentId, collectionName, query, k, response, System.currentTimeMillis() - startTime);
                 return response;
             }
         } catch (Exception e) {
@@ -66,6 +73,7 @@ public class Retriever {
             RetrieveResponse response = vectorSearch(fullCollectionName, query, k);
             if (response != null && !response.getResults().isEmpty()) {
                 asyncRecordHit(fullCollectionName, response.getResults());
+                asyncRecordRetrievalLog(agentId, collectionName, query, k, response, System.currentTimeMillis() - startTime);
                 return response;
             }
         } catch (Exception e) {
@@ -76,13 +84,16 @@ public class Retriever {
             RetrieveResponse response = keywordSearch(fullCollectionName, query, k);
             if (response != null && !response.getResults().isEmpty()) {
                 asyncRecordHit(fullCollectionName, response.getResults());
+                asyncRecordRetrievalLog(agentId, collectionName, query, k, response, System.currentTimeMillis() - startTime);
                 return response;
             }
         } catch (Exception e) {
             log.warn("Keyword search failed: {}", e.getMessage());
         }
 
-        return buildFallbackResponse(query, k);
+        RetrieveResponse fallbackResp = buildFallbackResponse(query, k);
+        asyncRecordRetrievalLog(agentId, collectionName, query, k, fallbackResp, System.currentTimeMillis() - startTime);
+        return fallbackResp;
     }
 
     private RetrieveResponse hybridSearch(String collectionName, String query, int topK) {
@@ -201,7 +212,9 @@ public class Retriever {
                 .limit((long) topK)
                 .outputFields(List.of("id", "content", "source", "title", "chunk_index",
                         "question", "content_hash", "created_at", "ingest_time",
-                        "hit_count", "adopt_count", "relevance_score", "chunk_type"))
+                        "hit_count", "adopt_count", "relevance_score", "chunk_type",
+                        // v11 新增：溯源字段
+                        "page_number", "chapter", "context_pages", "table_html", "source_filename"))
                 .build();
 
         QueryResp queryResp = milvusManager.getClient().query(queryReq);
@@ -249,7 +262,9 @@ public class Retriever {
                 .searchParams(Map.of("nprobe", retrieveProperties.getNprobe()))
                 .outputFields(List.of("id", "content", "source", "title", "chunk_index",
                         "question", "content_hash", "created_at", "ingest_time",
-                        "hit_count", "adopt_count", "relevance_score", "chunk_type"))
+                        "hit_count", "adopt_count", "relevance_score", "chunk_type",
+                        // v11 新增：溯源字段
+                        "page_number", "chapter", "context_pages", "table_html", "source_filename"))
                 .build();
         return milvusManager.getClient().search(searchReq);
     }
@@ -267,6 +282,14 @@ public class Retriever {
         metadata.setAdoptCount(entity.containsKey("adopt_count") ? ((Number) entity.get("adopt_count")).longValue() : 0);
         metadata.setRelevanceScore(entity.containsKey("relevance_score") ? ((Number) entity.get("relevance_score")).doubleValue() : 1.0);
         metadata.setChunkType(entity.getOrDefault("chunk_type", "prose").toString());
+
+        // v11 新增：溯源信息
+        metadata.setPageNumber(entity.containsKey("page_number") ? ((Number) entity.get("page_number")).intValue() : 0);
+        metadata.setChapter(entity.getOrDefault("chapter", "").toString());
+        metadata.setContextPages(entity.getOrDefault("context_pages", "").toString());
+        metadata.setTableHtml(entity.getOrDefault("table_html", "").toString());
+        metadata.setSourceFilename(entity.getOrDefault("source_filename", "").toString());
+
         return new RetrieveResponse.RetrieveResult(
                 entity.getOrDefault("content", "").toString(), adjustedScore, metadata);
     }
@@ -305,6 +328,69 @@ public class Retriever {
         return value.replace("\"", "\\\"");
     }
 
+    /**
+     * 异步记录检索日志到数据库，用于命中率监控和检索质量分析
+     */
+    @Async
+    public void asyncRecordRetrievalLog(String agentId, String collectionName, String query,
+                                         int topK, RetrieveResponse response, long durationMs) {
+        try {
+            RetrievalLog logEntry = new RetrievalLog();
+            logEntry.setAgentId(agentId);
+            logEntry.setCollectionName(collectionName);
+            logEntry.setQuery(query != null && query.length() > 1000 ? query.substring(0, 1000) : query);
+            logEntry.setStrategy(response.getStrategy());
+            logEntry.setTopK(topK);
+            logEntry.setConfidence(response.getConfidence());
+            logEntry.setFallbackUsed(response.isFallbackUsed());
+            logEntry.setDurationMs(durationMs);
+
+            List<RetrieveResponse.RetrieveResult> results = response.getResults();
+            boolean hitSuccess = results != null && !results.isEmpty() && !response.isFallbackUsed();
+            logEntry.setHitSuccess(hitSuccess);
+            logEntry.setHitCount(results != null ? results.size() : 0);
+
+            if (results != null && !results.isEmpty()) {
+                logEntry.setTopScore(results.get(0).getScore());
+                // 构建命中块溯源摘要 JSON
+                logEntry.setHitSources(buildHitSourcesJson(results));
+            } else {
+                logEntry.setTopScore(0.0);
+                logEntry.setHitSources("[]");
+            }
+
+            retrievalLogMapper.insert(logEntry);
+        } catch (Exception e) {
+            log.debug("Failed to record retrieval log: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 构建命中块溯源摘要 JSON（页码、章节、源文件、得分）
+     */
+    private String buildHitSourcesJson(List<RetrieveResponse.RetrieveResult> results) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < results.size() && i < 10; i++) {
+            RetrieveResponse.RetrieveResult r = results.get(i);
+            RetrieveResponse.ChunkMetadata m = r.getMetadata();
+            if (i > 0) sb.append(",");
+            sb.append("{");
+            sb.append("\"score\":").append(r.getScore()).append(",");
+            sb.append("\"page\":").append(m != null ? m.getPageNumber() : 0).append(",");
+            sb.append("\"chapter\":\"").append(escapeJson(m != null ? m.getChapter() : "")).append("\",");
+            sb.append("\"source\":\"").append(escapeJson(m != null ? m.getSourceFilename() : "")).append("\",");
+            sb.append("\"chunkType\":\"").append(escapeJson(m != null ? m.getChunkType() : "")).append("\"");
+            sb.append("}");
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    private String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "");
+    }
+
     @Async
     public void asyncRecordHit(String collectionName, List<RetrieveResponse.RetrieveResult> results) {
         for (RetrieveResponse.RetrieveResult result : results) {
@@ -316,7 +402,9 @@ public class Retriever {
                             .filter("id == \"" + escapeFilter(chunkId) + "\"")
                             .outputFields(List.of("id", "content", "vector", "question", "question_vector",
                                     "source", "title", "chunk_index", "content_hash", "created_at",
-                                    "ingest_time", "hit_count", "adopt_count", "relevance_score", "chunk_type"))
+                                    "ingest_time", "hit_count", "adopt_count", "relevance_score", "chunk_type",
+                                    // v11 新增：溯源字段
+                                    "page_number", "chapter", "context_pages", "table_html", "source_filename"))
                             .build();
                     QueryResp queryResp = milvusManager.getClient().query(queryReq);
                     if (!queryResp.getQueryResults().isEmpty()) {

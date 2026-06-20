@@ -153,6 +153,17 @@ public class MilvusManager {
         schema.addField(AddFieldReq.builder().fieldName("chunk_type").dataType(io.milvus.v2.common.DataType.VarChar)
                 .maxLength(16).build());
 
+        // v11 新增：溯源信息字段
+        schema.addField(AddFieldReq.builder().fieldName("page_number").dataType(io.milvus.v2.common.DataType.Int64).build());
+        schema.addField(AddFieldReq.builder().fieldName("chapter").dataType(io.milvus.v2.common.DataType.VarChar)
+                .maxLength(512).build());
+        schema.addField(AddFieldReq.builder().fieldName("context_pages").dataType(io.milvus.v2.common.DataType.VarChar)
+                .maxLength(256).build());
+        schema.addField(AddFieldReq.builder().fieldName("table_html").dataType(io.milvus.v2.common.DataType.VarChar)
+                .maxLength(65535).build());
+        schema.addField(AddFieldReq.builder().fieldName("source_filename").dataType(io.milvus.v2.common.DataType.VarChar)
+                .maxLength(512).build());
+
         List<IndexParam> indexParams = new ArrayList<>();
         indexParams.add(IndexParam.builder().fieldName("vector")
                 .indexType(IndexParam.IndexType.IVF_FLAT).metricType(IndexParam.MetricType.COSINE)

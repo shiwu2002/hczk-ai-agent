@@ -190,20 +190,20 @@ public class KnowledgeController {
             return Result.success(response);
         }
 
-        // 其他情况：解析为纯文本后按 docType 分块
-        DocumentParser.ParsedDocument parsed;
+        // 其他情况：v11 走页感知解析+入库（保留页码、章节、表格结构）
+        DocumentParser.ParsedDocumentWithPages parsed;
         try {
-            parsed = documentParser.parse(file);
+            parsed = documentParser.parseWithPages(file);
         } catch (Exception e) {
             log.error("文档解析失败: {}", e.getMessage());
             return Result.error("文档解析失败: " + e.getMessage());
         }
 
-        if (parsed.text() == null || parsed.text().isBlank()) {
+        if (parsed.pages() == null || parsed.pages().isEmpty()) {
             return Result.error("文档内容为空");
         }
 
-        IngestResponse response = ingester.ingestText(agentId, collection, parsed.text(), fileType, docTitle, docType);
+        IngestResponse response = ingester.ingestPages(agentId, collection, parsed.pages(), fileType, docTitle, docType);
         ensureKnowledgeBaseBinding(agentId, collection);
         return Result.success(response);
     }
@@ -236,10 +236,10 @@ public class KnowledgeController {
                     continue;
                 }
 
-                DocumentParser.ParsedDocument parsed = documentParser.parse(file);
-                if (parsed.text() != null && !parsed.text().isBlank()) {
-                    IngestResponse resp = ingester.ingestText(
-                            agentId, collection, parsed.text(),
+                DocumentParser.ParsedDocumentWithPages parsed = documentParser.parseWithPages(file);
+                if (parsed.pages() != null && !parsed.pages().isEmpty()) {
+                    IngestResponse resp = ingester.ingestPages(
+                            agentId, collection, parsed.pages(),
                             fileType, docTitle, docType);
                     results.add(resp);
                 }

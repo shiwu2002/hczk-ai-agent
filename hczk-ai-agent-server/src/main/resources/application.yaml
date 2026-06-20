@@ -93,6 +93,25 @@ knowledge:
     chunk-size: 800
     chunk-overlap-sentences: 2
     milvus-batch-size: 100
+  # 入库前 LLM 预处理：通过模型对文档进行总结与语义切割，提升检索质量
+  llm-preprocess:
+    enabled: false              # 是否启用（默认关闭，启用后非QA文档会先经LLM总结切割）
+    model-id: 1                 # 用于预处理的 AiModel ID（ai_models 表主键）
+    min-text-length: 200        # 触发预处理的最小文本长度（字符）
+    max-input-chars: 50000      # 单次送入LLM的最大文本长度（超出分段处理）
+    target-chunk-size: 500      # LLM产出的每个语义块目标长度（字符）
+    timeout-ms: 120000          # LLM调用超时（毫秒）
+    chunk-delimiter: "\n\n===CHUNK===\n\n"  # LLM输出中块分隔符
+  # v11 OCR 服务：处理 PDF 扫描件、图片等无法通过文本提取获得有效内容的文档
+  ocr:
+    enabled: false              # 是否启用 OCR（默认关闭）
+    base-url: https://open.bigmodel.cn/api/paas/v4  # GLM-OCR API 地址
+    api-key:                    # API Key
+    model: glm-ocr              # OCR 模型名称
+    timeout-ms: 60000           # 调用超时（毫秒）
+    max-retries: 2              # 最大重试次数
+    scanned-detect-chars-per-page: 50  # 扫描件检测阈值（字符/页，低于此值判定为扫描件）
+    render-dpi: 200             # PDF 渲染为图片的 DPI
   retrieve:
     default-top-k: 5
     max-top-k: 50
