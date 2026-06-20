@@ -6,7 +6,9 @@ import com.hczk.hczkaiagentserver.knowledge.config.IngestProperties;
 import com.hczk.hczkaiagentserver.knowledge.dto.IngestJsonRequest;
 import com.hczk.hczkaiagentserver.knowledge.dto.IngestResponse;
 import com.hczk.hczkaiagentserver.knowledge.embedder.Embedder;
+import com.hczk.hczkaiagentserver.knowledge.llm.LlmPreprocessor;
 import com.hczk.hczkaiagentserver.knowledge.milvus.MilvusManager;
+import com.hczk.hczkaiagentserver.knowledge.parser.DocumentParser;
 import com.hczk.hczkaiagentserver.knowledge.util.MilvusDataConverter;
 import io.milvus.v2.service.vector.request.InsertReq;
 import io.milvus.v2.service.vector.request.QueryReq;
@@ -29,6 +31,7 @@ public class Ingester {
     private final Embedder embedder;
     private final IngestProperties ingestProperties;
     private final EmbeddingProperties embeddingProperties;
+    private final LlmPreprocessor llmPreprocessor;
 
     public IngestResponse ingestText(String agentId, String collectionName, String text,
                                       String source, String title) {
@@ -40,7 +43,79 @@ public class Ingester {
         String fullCollectionName = milvusManager.buildCollectionName(agentId, collectionName);
         milvusManager.ensureCollection(fullCollectionName);
         Chunker chunker = new Chunker(ingestProperties.getChunkSize(), ingestProperties.getChunkOverlapSentences());
-        List<Chunker.Chunk> chunks = chunker.split(text, docType);
+
+        // v10：入库前先通过 LLM 进行一轮总结与语义切割
+        List<Chunker.Chunk> chunks = splitWithLlmPreprocess(chunker, text, docType, source, title);
+        return ingestChunks(fullCollectionName, chunks, source, title);
+    }
+
+    /**
+     * v11 新增：带页码和章节信息的入库方法
+     * 接收解析后的页面列表，走 LLM 页感知预处理，写入溯源信息
+     *
+     * @param agentId       智能体ID
+     * @param collectionName 集合名
+     * @param pages          解析后的页面列表（含页码、章节、表格标记）
+     * @param source         来源
+     * @param title          标题
+     * @param docType        文档类型
+     */
+    public IngestResponse ingestPages(String agentId, String collectionName,
+                                       List<DocumentParser.ParsedPage> pages,
+                                       String source, String title, String docType) {
+        String fullCollectionName = milvusManager.buildCollectionName(agentId, collectionName);
+        milvusManager.ensureCollection(fullCollectionName);
+        Chunker chunker = new Chunker(ingestProperties.getChunkSize(), ingestProperties.getChunkOverlapSentences());
+
+        List<Chunker.Chunk> chunks;
+
+        // 优先走 LLM 页感知预处理
+        if (llmPreprocessor.shouldPreprocessPages(pages, docType)) {
+            try {
+                log.info("开始 LLM 页感知预处理: source={}, title={}, pages={}", source, title, pages.size());
+                List<LlmPreprocessor.SemanticChunk> semanticChunks = llmPreprocessor.summarizeAndSplitWithPages(pages);
+
+                if (semanticChunks != null && !semanticChunks.isEmpty()) {
+                    chunks = new ArrayList<>();
+                    for (LlmPreprocessor.SemanticChunk sc : semanticChunks) {
+                        chunks.add(Chunker.Chunk.builder()
+                                .content(sc.content())
+                                .question(null)
+                                .chunkType("prose")
+                                .chunkIndex(sc.chunkIndex())
+                                .pageNumber(sc.pageNumbers() != null && !sc.pageNumbers().isEmpty() ? sc.pageNumbers().get(0) : 0)
+                                .chapter(sc.chapter())
+                                .contextPages(sc.contextPages())
+                                .sourceFilename(sc.sourceFilename())
+                                .build());
+                    }
+                    log.info("LLM 页感知预处理成功: {} 页 → {} 个语义块", pages.size(), chunks.size());
+                    return ingestChunks(fullCollectionName, chunks, source, title);
+                }
+                log.warn("LLM 页感知预处理返回空结果，回退到规则分块");
+            } catch (Exception e) {
+                log.error("LLM 页感知预处理失败，回退到规则分块: {}", e.getMessage(), e);
+            }
+        }
+
+        // 回退：合并所有页文本走规则分块
+        StringBuilder sb = new StringBuilder();
+        int firstPage = 0;
+        String chapter = "";
+        String sourceFilename = "";
+        for (DocumentParser.ParsedPage page : pages) {
+            if (firstPage == 0) firstPage = page.pageNumber();
+            if (chapter.isEmpty() && page.chapter() != null) chapter = page.chapter();
+            if (sourceFilename.isEmpty() && page.sourceFilename() != null) sourceFilename = page.sourceFilename();
+            sb.append(page.text()).append("\n\n");
+        }
+        chunks = chunker.split(sb.toString(), docType);
+        // 为回退分块附加溯源信息
+        for (Chunker.Chunk chunk : chunks) {
+            chunk.setPageNumber(firstPage);
+            chunk.setChapter(chapter);
+            chunk.setSourceFilename(sourceFilename);
+        }
         return ingestChunks(fullCollectionName, chunks, source, title);
     }
 
@@ -63,12 +138,61 @@ public class Ingester {
         Chunker chunker = new Chunker(ingestProperties.getChunkSize(), ingestProperties.getChunkOverlapSentences());
         List<Chunker.Chunk> allChunks = new ArrayList<>();
         for (IngestJsonRequest.JsonDataItem item : data) {
-            List<Chunker.Chunk> chunks = chunker.split(item.getContent());
+            // JSON 入库也支持 LLM 预处理（按 auto 模式判断）
+            List<Chunker.Chunk> chunks = splitWithLlmPreprocess(chunker, item.getContent(), "auto", item.getSource(), item.getTitle());
             allChunks.addAll(chunks);
         }
         String source = data.get(0).getSource();
         String title = data.get(0).getTitle();
         return ingestChunks(fullCollectionName, allChunks, source, title);
+    }
+
+    /**
+     * 分块入口：优先使用 LLM 预处理进行总结与语义切割，失败时回退到规则分块
+     *
+     * @param chunker 规则分块器
+     * @param text    原始文本
+     * @param docType 文档类型
+     * @param source  来源（仅用于日志）
+     * @param title   标题（仅用于日志）
+     * @return 分块列表
+     */
+    private List<Chunker.Chunk> splitWithLlmPreprocess(Chunker chunker, String text,
+                                                        String docType, String source, String title) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+
+        // 判断是否需要 LLM 预处理
+        if (!llmPreprocessor.shouldPreprocess(text, docType)) {
+            return chunker.split(text, docType);
+        }
+
+        try {
+            log.info("开始 LLM 预处理: source={}, title={}, textLen={}, docType={}", source, title, text.length(), docType);
+            List<String> semanticChunks = llmPreprocessor.summarizeAndSplit(text);
+
+            if (semanticChunks == null || semanticChunks.isEmpty()) {
+                log.warn("LLM 预处理返回空结果，回退到规则分块");
+                return chunker.split(text, docType);
+            }
+
+            // 将 LLM 产出的语义块转为 Chunk 对象
+            List<Chunker.Chunk> chunks = new ArrayList<>();
+            for (int i = 0; i < semanticChunks.size(); i++) {
+                chunks.add(Chunker.Chunk.builder()
+                        .content(semanticChunks.get(i))
+                        .question(null)
+                        .chunkType("prose")
+                        .chunkIndex(i)
+                        .build());
+            }
+            log.info("LLM 预处理成功: 原始 {} 字符 → {} 个语义块", text.length(), chunks.size());
+            return chunks;
+        } catch (Exception e) {
+            log.error("LLM 预处理失败，回退到规则分块: {}", e.getMessage(), e);
+            return chunker.split(text, docType);
+        }
     }
 
     private IngestResponse ingestChunks(String collectionName, List<Chunker.Chunk> chunks,
@@ -141,6 +265,13 @@ public class Ingester {
             row.put("adopt_count", 0L);
             row.put("relevance_score", 1.0f);
             row.put("chunk_type", chunk.getChunkType());
+
+            // v11 新增：溯源信息字段
+            row.put("page_number", (long) chunk.getPageNumber());
+            row.put("chapter", chunk.getChapter() != null ? chunk.getChapter() : "");
+            row.put("context_pages", chunk.getContextPages() != null ? chunk.getContextPages() : "");
+            row.put("table_html", chunk.getTableHtml() != null ? chunk.getTableHtml() : "");
+            row.put("source_filename", chunk.getSourceFilename() != null ? chunk.getSourceFilename() : "");
 
             insertBatch.add(row);
             ingestedChunks++;
