@@ -61,8 +61,26 @@ public class ToolController {
         }
 
         // v10：权限校验——根据当前用户身份判断是否可调用该工具
-        // user_id 必须由智能体在 arguments 中携带，平台不自动注入
+        // userId 必须来自认证上下文（JWT/API Key），禁止从 arguments 回退，防止越权
         String currentUserId = resolveCurrentUserId(arguments);
+        if (currentUserId == null || currentUserId.isBlank()) {
+            log.warn("工具调用被拒绝（未认证）: toolName={}", toolName);
+            return Result.error(401, "未认证，无法识别用户身份");
+        }
+        // 防越权：若 arguments 中携带 user_id/agent_id，必须与认证身份一致
+        Object argUserId = arguments.get("user_id");
+        if (argUserId != null && !currentUserId.equals(String.valueOf(argUserId))) {
+            log.warn("工具调用被拒绝（arguments.user_id 与认证身份不一致）: authUserId={}, argUserId={}, toolName={}",
+                    currentUserId, argUserId, toolName);
+            return Result.error("user_id 与认证身份不一致");
+        }
+        Object argAgentId = arguments.get("agent_id");
+        if (argAgentId != null && !currentUserId.equals(String.valueOf(argAgentId))) {
+            log.warn("工具调用被拒绝（arguments.agent_id 与认证身份不一致）: authUserId={}, argAgentId={}, toolName={}",
+                    currentUserId, argAgentId, toolName);
+            return Result.error("agent_id 与认证身份不一致");
+        }
+
         String skillId = toolDefinitionService.getSkillIdByToolName(toolName);
         if (skillId == null) {
             return Result.error("工具不存在: " + toolName);
@@ -81,7 +99,8 @@ public class ToolController {
 
         log.info("工具执行请求: tool={}, args={}, userId={}", toolName, arguments, currentUserId);
 
-        Map<String, Object> result = toolExecuteService.execute(toolName, arguments);
+        // 用认证 userId 执行工具，确保数据隔离基于可信身份
+        Map<String, Object> result = toolExecuteService.execute(toolName, arguments, currentUserId);
         return Result.success(result);
     }
 
@@ -203,32 +222,20 @@ public class ToolController {
     // ===== 内部工具方法 =====
 
     /**
-     * 解析当前用户ID：
-     * 1. 优先从 SecurityContext 中获取（JWT/API Key 认证）
-     * 2. 其次从请求参数 user_id 获取（智能体调用时传入）
-     * 3. 兜底从 arguments.user_id 获取
+     * 解析当前用户ID（用于工具执行权限校验）：
+     * 仅从 SecurityContext 中获取（JWT/API Key 认证），禁止从请求体回退，防止越权。
+     * 取不到时返回 null，调用方应返回 401。
      */
     private String resolveCurrentUserId(Map<String, Object> arguments) {
-        String userId = resolveUserIdFromAuthOrParam(null);
-        if (userId != null) return userId;
-        if (arguments != null) {
-            Object argUserId = arguments.get("user_id");
-            if (argUserId != null) return String.valueOf(argUserId);
-            Object argAgentId = arguments.get("agent_id");
-            if (argAgentId != null) return String.valueOf(argAgentId);
-        }
-        return null;
+        // arguments 不再作为身份来源，防止伪造 user_id 绕过权限
+        return resolveUserIdFromAuthOrParam(null);
     }
 
     /**
-     * 从认证上下文或请求参数解析用户ID
+     * 从认证上下文解析用户ID，认证上下文缺失时回退到请求参数（仅用于工具定义查询，非工具执行）
      */
     private String resolveUserIdFromAuthOrParam(String userIdParam) {
-        // 1. 请求参数优先（智能体显式传入）
-        if (userIdParam != null && !userIdParam.isBlank()) {
-            return userIdParam;
-        }
-        // 2. 从认证上下文获取
+        // 1. 认证上下文优先（JWT/API Key 认证），确保身份不可伪造
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getDetails() instanceof Map<?, ?> details) {
             Object userId = details.get("userId");
@@ -237,6 +244,10 @@ public class ToolController {
         if (auth != null && auth.getName() != null && auth.getName().startsWith("apikey-user-")) {
             // ApiKeyAuthenticationFilter 设置的 principal 格式：apikey-user-{userId}
             return auth.getName().substring("apikey-user-".length());
+        }
+        // 2. 认证上下文缺失时回退到请求参数（仅用于工具定义查询场景）
+        if (userIdParam != null && !userIdParam.isBlank()) {
+            return userIdParam;
         }
         return null;
     }

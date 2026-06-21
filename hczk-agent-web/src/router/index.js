@@ -56,6 +56,12 @@ const router = createRouter({
         { path: 'platforms', name: 'admin-platforms', component: () => import('@/views/admin/Platforms.vue') },
         { path: 'settings', name: 'admin-settings', component: () => import('@/views/admin/Settings.vue') }
       ]
+    },
+    // 404 兜底：所有未匹配路由跳转 NotFound
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('@/views/NotFound.vue')
     }
   ]
 })

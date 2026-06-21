@@ -46,7 +46,7 @@ Skill（工具组）                  ToolDefinition（工具）
 
 智能体调用平台工具时，平台按以下规则校验访问权限：
 
-1. 从请求中解析用户身份（优先级：请求参数 `user_id` > JWT/API Key 认证 > 工具参数 `arguments.user_id`）
+1. 从请求中解析用户身份（优先级：请求参数 `user_id` > JWT/API Key 认证（从 `userId` claim 提取） > 工具参数 `arguments.user_id`）
 2. 查询目标工具所属的工具组可见性
 3. 如果工具组为 `public` → 允许访问
 4. 如果工具组为 `private` → 检查 `user_skill_binding` 中是否存在且 `enabled=1` 的绑定记录

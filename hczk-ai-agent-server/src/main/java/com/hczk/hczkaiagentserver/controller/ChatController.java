@@ -29,8 +29,10 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -53,7 +55,20 @@ public class ChatController {
     private final SkillService skillService;
     private final JwtUtil jwtUtil;
     private final RestTemplate restTemplate = new RestTemplate();
-    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
+    /**
+     * SSE 转发线程池（有界）：
+     * core=8, max=64, queue=200，队列满时由调用线程同步执行（避免丢失请求）
+     */
+    private final ExecutorService sseExecutor = new ThreadPoolExecutor(
+            8, 64, 60L, TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(200),
+            r -> {
+                Thread t = new Thread(r, "sse-forward");
+                t.setDaemon(true);
+                return t;
+            },
+            new ThreadPoolExecutor.CallerRunsPolicy()
+    );
 
     @Value("${app.platform-url:http://localhost:8080}")
     private String platformBaseUrl;
@@ -471,7 +486,7 @@ public class ChatController {
             body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
             // 传递工具执行端点和认证信息，供远端智能体回调平台工具时使用
             body.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
-            body.put("tools_auth_token", apiKey);  // 用 API Key 作为回调认证凭据
+            body.put("tools_auth_token", agentToken);  // 用短期 agentToken 作为回调认证凭据（避免明文 API Key 泄露）
             if (originalRequest != null) {
                 for (Map.Entry<String, Object> entry : originalRequest.entrySet()) {
                     if (!body.containsKey(entry.getKey())) {
@@ -522,7 +537,7 @@ public class ChatController {
                 body.put("available_skills", getAvailableSkills(userId));
                 body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
                 body.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
-                body.put("tools_auth_token", apiKey);
+                body.put("tools_auth_token", agentToken);
                 if (originalRequest != null) {
                     body.putAll(originalRequest);
                 }
@@ -612,7 +627,7 @@ public class ChatController {
             body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
             // 传递工具执行端点和认证信息，供远端智能体回调平台工具时使用
             body.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
-            body.put("tools_auth_token", apiKey);  // 用 API Key 作为回调认证凭据
+            body.put("tools_auth_token", agentToken);  // 用短期 agentToken 作为回调认证凭据（避免明文 API Key 泄露）
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
             @SuppressWarnings("unchecked")

@@ -16,6 +16,7 @@
 - 内置工具走 `POST /api/tools/execute`
 - API 类工具走自定义 endpoint
 - 工具组目录和工具定义均通过 Redis 缓存（20-30 分钟随机 TTL）
+- Milvus 集合确保状态（ensuredCollections）通过 Redis 共享缓存，多实例部署时避免重复 `hasCollection` 查询
 - **用户身份传递**：需要用户隔离的工具（如 knowledge_search），智能体必须在调用参数中携带 `user_id`，平台不自动注入
 - **参数校验**：平台在工具执行前校验 input_schema 的 required 字段，缺失时返回明确错误
 - **可见性控制**：private 工具组仅绑定用户可访问，平台在工具发现和执行时均做权限校验
@@ -24,6 +25,8 @@
 
 - 每次调用生成新 Token，有效期 1 小时
 - 登录 JWT 包含 `userId` claim（雪花ID）
+- 智能体调用 JWT（agentToken）也使用 `userId` claim（与登录 JWT 一致），包含 `scope` 和可选 `apiKey`
+- 平台 `JwtAuthenticationFilter` 支持识别两种 Token：登录 JWT（`jwt.secret` 签名）和 agentToken（`jwt.agent.shared-secret` 签名）
 - 试用场景传递真实用户ID（从JWT认证上下文获取），不再硬编码 "trial"
 - 工具执行和发现 API 可使用 JWT Token 或 `tools_auth_token`
 

@@ -19,6 +19,9 @@ import io.milvus.v2.service.vector.response.QueryResp;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -42,12 +45,22 @@ public class KnowledgeController {
     // ==================== 知识库归属管理 ====================
 
     /**
-     * GET /knowledge/bases - 获取所有知识库归属记录
+     * GET /knowledge/bases - 获取知识库归属记录
+     * 普通用户仅能查看自己的知识库；ADMIN 可查看全部或按 ownerType/ownerId 过滤
      */
     @GetMapping("/bases")
     public Result<List<KnowledgeBase>> listKnowledgeBases(
             @RequestParam(required = false) String ownerType,
             @RequestParam(required = false) String ownerId) {
+        String currentUserId = getCurrentUserId();
+        if (currentUserId == null || currentUserId.isBlank()) {
+            return Result.error(401, "未认证，无法识别用户身份");
+        }
+        // 普通用户强制按自己的 ownerId 过滤，忽略请求参数中的 ownerId/ownerType 以防越权
+        if (!isAdmin()) {
+            return Result.success(knowledgeBaseService.getByOwnerId("USER", currentUserId));
+        }
+        // ADMIN 可按条件查询
         if (ownerType != null && ownerId != null) {
             return Result.success(knowledgeBaseService.getByOwnerId(ownerType, ownerId));
         }
@@ -59,9 +72,23 @@ public class KnowledgeController {
 
     /**
      * POST /knowledge/bases - 创建知识库归属记录
+     * 普通用户仅能为自己的 ownerId 创建；ADMIN 可为任意 owner 创建
      */
     @PostMapping("/bases")
     public Result<KnowledgeBase> createKnowledgeBase(@RequestBody KnowledgeBase knowledgeBase) {
+        String currentUserId = getCurrentUserId();
+        if (currentUserId == null || currentUserId.isBlank()) {
+            return Result.error(401, "未认证，无法识别用户身份");
+        }
+        // 普通用户只能创建 ownerType=USER 且 ownerId=自己的知识库
+        if (!isAdmin()) {
+            if (!"USER".equals(knowledgeBase.getOwnerType())
+                    || !currentUserId.equals(knowledgeBase.getOwnerId())) {
+                log.warn("创建知识库越权被拒绝: currentUserId={}, ownerType={}, ownerId={}",
+                        currentUserId, knowledgeBase.getOwnerType(), knowledgeBase.getOwnerId());
+                return Result.error(403, "无权为其他用户创建知识库");
+            }
+        }
         // 根据 ownerType 和 ownerId 生成 agentId
         String agentId = buildAgentId(knowledgeBase.getOwnerType(), knowledgeBase.getOwnerId());
         knowledgeBase.setAgentId(agentId);
@@ -77,9 +104,26 @@ public class KnowledgeController {
 
     /**
      * DELETE /knowledge/bases/{id} - 删除知识库归属记录
+     * 普通用户仅能删除自己的知识库；ADMIN 可删除任意
      */
     @DeleteMapping("/bases/{id}")
     public Result<Void> deleteKnowledgeBase(@PathVariable Long id) {
+        String currentUserId = getCurrentUserId();
+        if (currentUserId == null || currentUserId.isBlank()) {
+            return Result.error(401, "未认证，无法识别用户身份");
+        }
+        if (!isAdmin()) {
+            // 查询知识库归属，校验所有权
+            KnowledgeBase kb = knowledgeBaseService.getById(id);
+            if (kb == null) {
+                return Result.error("知识库不存在");
+            }
+            if (!"USER".equals(kb.getOwnerType()) || !currentUserId.equals(kb.getOwnerId())) {
+                log.warn("删除知识库越权被拒绝: currentUserId={}, kbOwnerType={}, kbOwnerId={}",
+                        currentUserId, kb.getOwnerType(), kb.getOwnerId());
+                return Result.error(403, "无权删除该知识库");
+            }
+        }
         knowledgeBaseService.deleteKnowledgeBase(id);
         return Result.success();
     }
@@ -109,6 +153,8 @@ public class KnowledgeController {
      */
     @PostMapping("/retrieve")
     public Result<RetrieveResponse> retrieve(@Valid @RequestBody RetrieveRequest request) {
+        Result<RetrieveResponse> denied = checkOwnership(request.getAgentId());
+        if (denied != null) return denied;
         RetrieveResponse response = retriever.retrieve(
                 request.getAgentId(),
                 request.getCollection(),
@@ -123,6 +169,8 @@ public class KnowledgeController {
      */
     @PostMapping("/ingest")
     public Result<IngestResponse> ingest(@Valid @RequestBody IngestRequest request) {
+        Result<IngestResponse> denied = checkOwnership(request.getAgentId());
+        if (denied != null) return denied;
         IngestResponse response = ingester.ingestText(
                 request.getAgentId(),
                 request.getCollection(),
@@ -140,6 +188,8 @@ public class KnowledgeController {
      */
     @PostMapping("/ingest/json")
     public Result<IngestResponse> ingestJson(@Valid @RequestBody IngestJsonRequest request) {
+        Result<IngestResponse> denied = checkOwnership(request.getAgentId());
+        if (denied != null) return denied;
         IngestResponse response = ingester.ingestJson(
                 request.getAgentId(),
                 request.getCollection(),
@@ -162,6 +212,8 @@ public class KnowledgeController {
             @RequestParam(value = "collection", defaultValue = "default") String collection,
             @RequestParam(value = "title", required = false) String title,
             @RequestParam(value = "docType", defaultValue = "auto") String docType) {
+        Result<IngestResponse> denied = checkOwnership(agentId);
+        if (denied != null) return denied;
         if (file.isEmpty()) {
             return Result.error("上传文件不能为空");
         }
@@ -217,6 +269,8 @@ public class KnowledgeController {
             @RequestParam("agentId") String agentId,
             @RequestParam(value = "collection", defaultValue = "default") String collection,
             @RequestParam(value = "docType", defaultValue = "auto") String docType) {
+        Result<List<IngestResponse>> denied = checkOwnership(agentId);
+        if (denied != null) return denied;
         List<IngestResponse> results = new ArrayList<>();
         for (MultipartFile file : files) {
             if (file.isEmpty() || !documentParser.isSupported(file.getOriginalFilename())) {
@@ -253,10 +307,19 @@ public class KnowledgeController {
 
     /**
      * GET /knowledge/collections - List all collections
+     * 普通用户仅能查看自己的集合；ADMIN 可查看全部或按 agentId 过滤
      */
     @GetMapping("/collections")
     public Result<List<CollectionInfo>> listCollections(
             @RequestParam(required = false) String agentId) {
+        String currentUserId = getCurrentUserId();
+        if (currentUserId == null || currentUserId.isBlank()) {
+            return Result.error(401, "未认证，无法识别用户身份");
+        }
+        // 普通用户强制按自己的 agentId 过滤
+        if (!isAdmin()) {
+            agentId = currentUserId;
+        }
         List<String> collectionNames = milvusManager.listCollections(agentId);
         List<CollectionInfo> result = new ArrayList<>();
         for (String name : collectionNames) {
@@ -282,6 +345,8 @@ public class KnowledgeController {
     public Result<Void> deleteCollection(
             @PathVariable String name,
             @RequestParam String agentId) {
+        Result<Void> denied = checkOwnership(agentId);
+        if (denied != null) return denied;
         String fullCollectionName = milvusManager.buildCollectionName(agentId, name);
         milvusManager.dropCollection(fullCollectionName);
         // 同步删除归属记录
@@ -302,6 +367,8 @@ public class KnowledgeController {
             @RequestParam(required = false) String chunkType,
             @RequestParam(required = false) String source,
             @RequestParam(defaultValue = "100") int limit) {
+        Result<List<ChunkItem>> denied = checkOwnership(agentId);
+        if (denied != null) return denied;
         String fullCollectionName = milvusManager.buildCollectionName(agentId, name);
         // 浏览分块时不自动创建集合，避免产生空集合
         if (!milvusManager.collectionExists(fullCollectionName)) {
@@ -360,6 +427,8 @@ public class KnowledgeController {
     public Result<Void> adoptChunk(
             @PathVariable String id,
             @Valid @RequestBody AdoptRequest request) {
+        Result<Void> denied = checkOwnership(request.getAgentId());
+        if (denied != null) return denied;
         String fullCollectionName = milvusManager.buildCollectionName(request.getAgentId(), request.getCollection());
         relevanceScorer.markAdopted(fullCollectionName, id);
         return Result.success();
@@ -370,6 +439,8 @@ public class KnowledgeController {
      */
     @PostMapping("/recalculate")
     public Result<Integer> recalculate(@Valid @RequestBody RecalculateRequest request) {
+        Result<Integer> denied = checkOwnership(request.getAgentId());
+        if (denied != null) return denied;
         int updated;
         if (request.getCollection() != null && !request.getCollection().isEmpty()) {
             String fullCollectionName = milvusManager.buildCollectionName(request.getAgentId(), request.getCollection());
@@ -381,6 +452,57 @@ public class KnowledgeController {
     }
 
     // ==================== 私有方法 ====================
+
+    /**
+     * 从认证上下文获取当前用户ID（仅来自 JWT/API Key 认证，禁止从请求参数回退）
+     */
+    private String getCurrentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getDetails() instanceof Map<?, ?> details) {
+            Object userId = details.get("userId");
+            if (userId != null) return String.valueOf(userId);
+        }
+        if (auth != null && auth.getName() != null && auth.getName().startsWith("apikey-user-")) {
+            return auth.getName().substring("apikey-user-".length());
+        }
+        return null;
+    }
+
+    /**
+     * 判断当前认证用户是否为 ADMIN 角色
+     */
+    private boolean isAdmin() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) return false;
+        for (GrantedAuthority ga : auth.getAuthorities()) {
+            if ("ROLE_ADMIN".equals(ga.getAuthority())) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 校验当前用户对 agentId 的所有权
+     * @return null 校验通过；否则返回错误 Result
+     */
+    private <T> Result<T> checkOwnership(String agentId) {
+        String currentUserId = getCurrentUserId();
+        if (currentUserId == null || currentUserId.isBlank()) {
+            return Result.error(401, "未认证，无法识别用户身份");
+        }
+        // ADMIN 放行
+        if (isAdmin()) {
+            return null;
+        }
+        // 普通用户：agentId 必须等于当前用户ID（知识库按用户ID隔离）
+        if (agentId == null || agentId.isBlank()) {
+            return Result.error("缺少 agentId 参数");
+        }
+        if (!currentUserId.equals(agentId)) {
+            log.warn("知识库越权访问被拒绝: currentUserId={}, agentId={}", currentUserId, agentId);
+            return Result.error(403, "无权访问该知识库");
+        }
+        return null;
+    }
 
     /**
      * 从物理集合名提取 agentId

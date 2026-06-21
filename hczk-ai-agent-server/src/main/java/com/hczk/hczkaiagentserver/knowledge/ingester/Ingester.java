@@ -164,6 +164,15 @@ public class Ingester {
 
     public IngestResponse ingestJson(String agentId, String collectionName,
                                       List<IngestJsonRequest.JsonDataItem> data) {
+        // 入口校验：空集合直接返回，避免 data.get(0) 抛 IndexOutOfBoundsException
+        if (data == null || data.isEmpty()) {
+            log.warn("ingestJson 调用 data 为空: agentId={}, collection={}", agentId, collectionName);
+            IngestResponse resp = new IngestResponse();
+            resp.setIngestedChunks(0);
+            resp.setTotalChunks(0);
+            resp.setSkippedChunks(0);
+            return resp;
+        }
         String fullCollectionName = milvusManager.buildCollectionName(agentId, collectionName);
         milvusManager.ensureCollection(fullCollectionName);
         Chunker chunker = new Chunker(ingestProperties.getChunkSize(), ingestProperties.getChunkOverlapSentences());

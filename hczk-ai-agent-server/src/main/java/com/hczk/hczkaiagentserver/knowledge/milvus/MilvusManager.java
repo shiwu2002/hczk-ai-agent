@@ -2,6 +2,7 @@ package com.hczk.hczkaiagentserver.knowledge.milvus;
 
 import com.hczk.hczkaiagentserver.knowledge.config.EmbeddingProperties;
 import com.hczk.hczkaiagentserver.knowledge.config.MilvusProperties;
+import com.hczk.hczkaiagentserver.service.RedisCacheService;
 import io.milvus.v2.client.MilvusClientV2;
 import io.milvus.v2.client.ConnectConfig;
 import io.milvus.v2.service.collection.request.*;
@@ -23,11 +24,17 @@ public class MilvusManager {
 
     private final MilvusProperties milvusProperties;
     private final EmbeddingProperties embeddingProperties;
+    private final RedisCacheService redisCacheService;
 
     private volatile MilvusClientV2 client;
     private volatile boolean connected = false;
     private Timer reconnectTimer;
+    /**
+     * 进程内缓存（兜底）：多实例部署时主要依赖 Redis 共享缓存，
+     * 本地 Set 仅用于减少同实例重复 Redis 查询
+     */
     private final Set<String> ensuredCollections = Collections.synchronizedSet(new HashSet<>());
+    private static final String ENSURED_CACHE_PREFIX = "milvus:ensured:";
 
     public void init() {
         connect();
@@ -108,7 +115,15 @@ public class MilvusManager {
     }
 
     public void ensureCollection(String collectionName) {
+        // 1. 本地缓存命中则直接返回（同实例去重）
         if (ensuredCollections.contains(collectionName)) {
+            return;
+        }
+        // 2. Redis 共享缓存命中（多实例去重）
+        String redisKey = ENSURED_CACHE_PREFIX + collectionName;
+        if (redisCacheService.getCachedJson(redisKey) != null) {
+            // 同步到本地缓存，减少后续 Redis 查询
+            ensuredCollections.add(collectionName);
             return;
         }
         try {
@@ -118,7 +133,9 @@ public class MilvusManager {
                 createCollection(collectionName);
             }
             loadCollectionIfNeeded(collectionName);
+            // 双写缓存：本地 + Redis（TTL 1 小时，避免集合被外部删除后长期缓存不一致）
             ensuredCollections.add(collectionName);
+            redisCacheService.cacheJsonWithRandomTTL(redisKey, "1");
         } catch (Exception e) {
             log.error("Failed to ensure collection {}: {}", collectionName, e.getMessage());
             throw new RuntimeException("Failed to ensure collection: " + e.getMessage());
@@ -216,7 +233,9 @@ public class MilvusManager {
 
     public void dropCollection(String collectionName) {
         getClient().dropCollection(DropCollectionReq.builder().collectionName(collectionName).build());
+        // 双删缓存：本地 + Redis
         ensuredCollections.remove(collectionName);
+        redisCacheService.deleteKey(ENSURED_CACHE_PREFIX + collectionName);
         log.info("Dropped collection: {}", collectionName);
     }
 

@@ -1,6 +1,8 @@
 package com.hczk.hczkaiagentserver.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hczk.hczkaiagentserver.entity.Skill;
 import com.hczk.hczkaiagentserver.entity.UserSkillBinding;
 import com.hczk.hczkaiagentserver.mapper.SkillMapper;
@@ -26,6 +28,7 @@ public class UserSkillBindingServiceImpl implements UserSkillBindingService {
     private final UserSkillBindingMapper bindingMapper;
     private final SkillMapper skillMapper;
     private final RedisCacheService redisCache;
+    private final ObjectMapper objectMapper;
 
     /** 缓存 key 前缀：用户绑定的 skillId 集合 */
     private static final String CACHE_USER_SKILLS = "usb:user:";
@@ -98,7 +101,7 @@ public class UserSkillBindingServiceImpl implements UserSkillBindingService {
         String cached = redisCache.getCachedJson(cacheKey);
         if (cached != null) {
             try {
-                return objectMapper(cached);
+                return parseStringList(cached);
             } catch (Exception e) {
                 log.debug("用户绑定 skillIds 缓存反序列化失败，回源: userId={}", userId);
             }
@@ -108,7 +111,7 @@ public class UserSkillBindingServiceImpl implements UserSkillBindingService {
         List<UserSkillBinding> list = bindingMapper.selectList(qw);
         List<String> skillIds = list.stream().map(UserSkillBinding::getSkillId).collect(Collectors.toList());
         try {
-            redisCache.cacheJsonWithRandomTTL(cacheKey, new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(skillIds));
+            redisCache.cacheJsonWithRandomTTL(cacheKey, objectMapper.writeValueAsString(skillIds));
         } catch (Exception ignored) {}
         return skillIds;
     }
@@ -126,7 +129,7 @@ public class UserSkillBindingServiceImpl implements UserSkillBindingService {
         String cached = redisCache.getCachedJson(cacheKey);
         if (cached != null) {
             try {
-                return objectMapper(cached);
+                return parseStringList(cached);
             } catch (Exception e) {
                 log.debug("skill 绑定 userIds 缓存反序列化失败，回源: skillId={}", skillId);
             }
@@ -136,7 +139,7 @@ public class UserSkillBindingServiceImpl implements UserSkillBindingService {
         List<UserSkillBinding> list = bindingMapper.selectList(qw);
         List<String> userIds = list.stream().map(UserSkillBinding::getUserId).collect(Collectors.toList());
         try {
-            redisCache.cacheJsonWithRandomTTL(cacheKey, new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(userIds));
+            redisCache.cacheJsonWithRandomTTL(cacheKey, objectMapper.writeValueAsString(userIds));
         } catch (Exception ignored) {}
         return userIds;
     }
@@ -185,9 +188,11 @@ public class UserSkillBindingServiceImpl implements UserSkillBindingService {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private List<String> objectMapper(String json) throws Exception {
-        return new com.fasterxml.jackson.databind.ObjectMapper().readValue(json,
-                new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
+    /**
+     * 反序列化 JSON 字符串为 List<String>
+     * 复用注入的 ObjectMapper，避免反复创建
+     */
+    private List<String> parseStringList(String json) throws Exception {
+        return objectMapper.readValue(json, new TypeReference<List<String>>() {});
     }
 }

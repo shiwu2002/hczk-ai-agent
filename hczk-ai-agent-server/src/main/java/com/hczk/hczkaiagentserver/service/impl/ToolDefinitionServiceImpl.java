@@ -191,7 +191,6 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
         return tool != null ? tool.getSkillId() : null;
     }
 
-    @Override
     public List<String> validateRequiredParams(String toolName, Map<String, Object> arguments) {
         List<String> missing = new ArrayList<>();
         QueryWrapper<ToolDefinition> qw = new QueryWrapper<>();

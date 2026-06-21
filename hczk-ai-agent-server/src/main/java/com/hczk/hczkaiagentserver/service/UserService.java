@@ -59,4 +59,15 @@ public interface UserService {
      * @throws RuntimeException 验证码错误、邮箱不存在时抛出
      */
     void resetPassword(ForgotPasswordRequest request);
+
+    /**
+     * 修改密码（已登录用户）
+     * 校验旧密码后更新为新密码
+     *
+     * @param userId      用户ID（雪花ID）
+     * @param oldPassword 旧密码
+     * @param newPassword 新密码
+     * @throws RuntimeException 用户不存在或旧密码错误时抛出
+     */
+    void changePassword(String userId, String oldPassword, String newPassword);
 }

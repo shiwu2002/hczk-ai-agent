@@ -2,8 +2,9 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import router from '@/router'
 
-// 后端 API 基础地址
-export const API_BASE = 'http://localhost:8080/api'
+// 后端 API 基础地址（与 api.js 保持一致，从环境变量读取避免硬编码）
+// 此处不从 api.js 导入是为避免循环依赖（api.js 已依赖 auth.js）
+export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080/api'
 
 /**
  * 公开接口请求封装（无需登录认证）

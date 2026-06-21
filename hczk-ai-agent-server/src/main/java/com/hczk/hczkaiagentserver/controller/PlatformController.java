@@ -1,12 +1,10 @@
 package com.hczk.hczkaiagentserver.controller;
 
 import com.hczk.hczkaiagentserver.common.Result;
-import com.hczk.hczkaiagentserver.entity.Agent;
 import com.hczk.hczkaiagentserver.entity.MerchantAgentBinding;
 import com.hczk.hczkaiagentserver.entity.Skill;
 import com.hczk.hczkaiagentserver.entity.ToolDefinition;
 import com.hczk.hczkaiagentserver.entity.UserSkillBinding;
-import com.hczk.hczkaiagentserver.service.AgentService;
 import com.hczk.hczkaiagentserver.service.MerchantAgentBindingService;
 import com.hczk.hczkaiagentserver.service.SkillService;
 import com.hczk.hczkaiagentserver.service.ToolDefinitionService;
@@ -26,51 +24,21 @@ public class PlatformController {
     private final SkillService skillService;
     private final ToolDefinitionService toolDefinitionService;
     private final MerchantAgentBindingService bindingService;
-    private final AgentService agentService;
     private final UserSkillBindingService userSkillBindingService;
 
     public PlatformController(SkillService skillService, ToolDefinitionService toolDefinitionService,
-                              MerchantAgentBindingService bindingService, AgentService agentService,
+                              MerchantAgentBindingService bindingService,
                               UserSkillBindingService userSkillBindingService) {
         this.skillService = skillService;
         this.toolDefinitionService = toolDefinitionService;
         this.bindingService = bindingService;
-        this.agentService = agentService;
         this.userSkillBindingService = userSkillBindingService;
     }
 
     // ========== 智能体管理 ==========
-
-    @PostMapping("/agents")
-    public Result<Agent> createAgent(@RequestBody Agent agent) {
-        return Result.success(agentService.createAgent(agent));
-    }
-
-    @GetMapping("/agents")
-    public Result<List<Agent>> getAllAgents() {
-        return Result.success(agentService.getAllAgents());
-    }
-
-    @GetMapping("/agents/{id}")
-    public Result<Agent> getAgentById(@PathVariable Long id) {
-        return Result.success(agentService.getAgentById(id));
-    }
-
-    @PutMapping("/agents/{id}")
-    public Result<Agent> updateAgent(@PathVariable Long id, @RequestBody Agent agent) {
-        return Result.success(agentService.updateAgent(id, agent));
-    }
-
-    @DeleteMapping("/agents/{id}")
-    public Result<Void> deleteAgent(@PathVariable Long id) {
-        agentService.deleteAgent(id);
-        return Result.success();
-    }
-
-    @PostMapping("/agents/{id}/toggle")
-    public Result<Agent> toggleAgentStatus(@PathVariable Long id) {
-        return Result.success(agentService.toggleStatus(id));
-    }
+    // 注意：智能体 CRUD 已统一由 AgentController (/agents/**) 提供
+    // AgentController 对 ADMIN 角色放行所有操作，无需在此重复定义
+    // 此处仅保留 ADMIN 专属的批量健康检测等管理接口
 
     // ========== 工具组管理 ==========
 

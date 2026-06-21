@@ -42,26 +42,37 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String token = extractToken(request);
 
         // Token 存在且有效时，解析用户信息并写入安全上下文
-        if (StringUtils.hasText(token) && jwtUtil.validateToken(token)) {
-            String username = jwtUtil.getUsernameFromToken(token);
-            Integer roleValue = jwtUtil.getRoleFromToken(token);
-            String userId = jwtUtil.getUserIdFromToken(token);
+        if (StringUtils.hasText(token)) {
+            String username = null;
+            Integer roleValue = null;
+            String userId = null;
 
-            // 将 Integer 角色值映射为 Spring Security 角色名：0→ADMIN，1→USER
-            String roleName = (roleValue != null && roleValue == 0) ? "ADMIN" : "USER";
-
-            // 构建认证对象，角色添加 ROLE_ 前缀以匹配 Spring Security 的 hasRole() 判断
-            UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(
-                            username,
-                            null,
-                            List.of(new SimpleGrantedAuthority("ROLE_" + roleName))
-                    );
-            // 将 userId 存入 details，供后续 resolveCurrentUserId() 使用
-            if (userId != null && !userId.isEmpty()) {
-                authentication.setDetails(java.util.Map.of("userId", userId));
+            if (jwtUtil.validateToken(token)) {
+                // 普通用户 JWT
+                username = jwtUtil.getUsernameFromToken(token);
+                roleValue = jwtUtil.getRoleFromToken(token);
+                userId = jwtUtil.getUserIdFromToken(token);
+            } else if (jwtUtil.validateAgentToken(token)) {
+                // 智能体回调 JWT（scope=chat），无 role 信息，按普通用户处理
+                userId = jwtUtil.getAgentTokenUserId(token);
+                username = "agent_" + (userId != null ? userId : "unknown");
             }
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+
+            if (userId != null && !userId.isEmpty()) {
+                // 将 Integer 角色值映射为 Spring Security 角色名：0→ADMIN，1→USER
+                String roleName = (roleValue != null && roleValue == 0) ? "ADMIN" : "USER";
+
+                // 构建认证对象，角色添加 ROLE_ 前缀以匹配 Spring Security 的 hasRole() 判断
+                UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(
+                                username,
+                                null,
+                                List.of(new SimpleGrantedAuthority("ROLE_" + roleName))
+                        );
+                // 将 userId 存入 details，供后续 resolveCurrentUserId() 使用
+                authentication.setDetails(java.util.Map.of("userId", userId));
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            }
         }
 
         // Token 不存在或无效时，不设置认证信息，由后续 SecurityConfig 中的权限规则决定是否拒绝
