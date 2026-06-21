@@ -42,7 +42,7 @@
   "iss": "hczk-platform",
   "iat": 1781593200,
   "exp": 1781596800,
-  "user_id": "1234567890123456789",
+  "userId": "1234567890123456789",
   "scope": "chat",
   "apiKey": "sk-hczk-xxx"
 }
@@ -50,13 +50,15 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `sub` | string | 是 | 主体标识，格式为 `user_{user_id}` |
+| `sub` | string | 是 | 主体标识，格式为 `user_{userId}` |
 | `iss` | string | 是 | 签发者，固定为 `hczk-platform` |
 | `iat` | number | 是 | 签发时间（Unix 时间戳，秒级） |
 | `exp` | number | 是 | 过期时间（Unix 时间戳，秒级），默认1小时 |
-| `user_id` | string | 是 | 用户 ID（雪花ID），用于用户隔离和知识库查找 |
+| `userId` | string | 是 | 用户 ID（雪花ID），用于用户隔离和知识库查找 |
 | `scope` | string | 是 | 权限范围，当前固定为 `chat` |
 | `apiKey` | string | 否 | 平台 API Key（访问知识库和模型时使用），试用场景为空 |
+
+> **v6.0.0 变更**：智能体调用 JWT 中用户标识 claim 从 `user_id` 修正为 `userId`，与登录 JWT 保持一致，便于 JwtAuthenticationFilter 统一解析。
 
 ## 3.3 请求头格式
 
@@ -92,7 +94,16 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdW...省略...xxx
 | `jwt.agent.expiration` | `3600000`（1 小时） | Token 过期时间（毫秒） |
 | `jwt.agent.issuer` | `hczk-platform` | JWT 签发者标识 |
 
-## 3.5 智能体端验证流程
+## 3.5 平台端 JWT 识别机制
+
+平台的 `JwtAuthenticationFilter` 支持识别两种 JWT Token：
+
+1. **登录 JWT**：使用 `jwt.secret` 签名，包含 `role` 和 `userId` claim，验证成功后赋予 `ROLE_ADMIN` 或 `ROLE_USER` 权限
+2. **智能体调用 JWT（agentToken）**：使用 `jwt.agent.shared-secret` 签名，包含 `userId` 和 `scope` claim，无 `role` 信息，按 `ROLE_USER` 处理
+
+验证流程：先尝试用 `jwt.secret` 验证（登录 JWT），失败后尝试用 `jwt.agent.shared-secret` 验证（agentToken）。任一验证成功即可提取 `userId` 建立认证上下文。
+
+## 3.6 智能体端验证流程
 
 ```
 1. 从 Authorization 请求头提取 Bearer Token

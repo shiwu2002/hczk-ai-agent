@@ -102,7 +102,8 @@ public class JwtUtil {
                 .issuer(agentTokenIssuer)
                 .issuedAt(now)
                 .expiration(expiryDate)
-                .claim("user_id", userId)
+                // claim 命名与 generateToken 保持一致，确保 JwtAuthenticationFilter 能通过 getUserIdFromToken 解析
+                .claim("userId", userId)
                 .claim("scope", "chat");
 
         if (apiKey != null && !apiKey.trim().isEmpty()) {
@@ -138,9 +139,42 @@ public class JwtUtil {
         }
     }
 
+    /**
+     * 验证智能体调用 JWT（使用 agentSharedSecret 签名）
+     * 用于 JwtAuthenticationFilter 识别智能体回调请求
+     */
+    public boolean validateAgentToken(String token) {
+        try {
+            parseAgentToken(token);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 从智能体调用 JWT 中提取 userId
+     */
+    public String getAgentTokenUserId(String token) {
+        try {
+            Claims claims = parseAgentToken(token);
+            return claims.get("userId", String.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private Claims parseToken(String token) {
         return Jwts.parser()
                 .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+    }
+
+    private Claims parseAgentToken(String token) {
+        return Jwts.parser()
+                .verifyWith(getAgentSigningKey())
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();

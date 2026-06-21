@@ -74,7 +74,7 @@ onUnmounted(() => stopAutoRefresh());
 async function loadData() {
   loading.value = true;
   const [agentRes, bindingRes, userRes] = await Promise.all([
-    api.get('/platform/agents'),
+    api.get('/agents'),
     api.get('/platform/bindings').catch(() => ({ code: 200, data: [] })),
     api.get('/users').catch(() => ({ code: 200, data: [] }))
   ]);
@@ -98,15 +98,16 @@ async function loadHealthStatus() {
 }
 
 async function loadAllAgentInfo() {
-  for (const agent of agents.value) {
-    if (agent.infoEndpoint) {
-      try {
-        const res = await api.get(`/agents/${agent.id}/info`);
-        if (res.code === 200 && res.data) {
-          agentInfoMap.value[agent.id] = res.data;
-        }
-      } catch (e) { /* ignore */ }
-    }
+  // 并行请求所有 agent 的 info，避免串行 N+1
+  const tasks = agents.value
+    .filter(agent => agent.infoEndpoint)
+    .map(agent => api.get(`/agents/${agent.id}/info`)
+      .then(res => ({ id: agent.id, data: res.code === 200 ? res.data : null }))
+      .catch(() => ({ id: agent.id, data: null }))
+    );
+  const results = await Promise.all(tasks);
+  for (const { id, data } of results) {
+    if (data) agentInfoMap.value[id] = data;
   }
   agentInfoMap.value = { ...agentInfoMap.value };
 }
@@ -142,7 +143,7 @@ function toggleAutoRefresh() {
 }
 
 async function toggleStatus(agent) {
-  const res = await api.post(`/platform/agents/${agent.id}/toggle`);
+  const res = await api.post(`/agents/${agent.id}/toggle`);
   if (res.code === 200) {
     agent.status = res.data.status;
   } else {
@@ -152,7 +153,7 @@ async function toggleStatus(agent) {
 
 async function deleteAgent(id) {
   if (!confirm('确定注销该智能体？此操作不可恢复。')) return;
-  const res = await api.del(`/platform/agents/${id}`);
+  const res = await api.del(`/agents/${id}`);
   if (res.code === 200) { loadData(); }
   else { alert(res.message || '删除失败'); }
 }
@@ -176,7 +177,7 @@ async function saveAgent() {
   };
 
   if (editingAgent.value) {
-    const res = await api.put(`/platform/agents/${editingAgent.value.id}`, body);
+    const res = await api.put(`/agents/${editingAgent.value.id}`, body);
     if (res.code === 200) {
       showAddModal.value = false;
       editingAgent.value = null;
@@ -184,7 +185,7 @@ async function saveAgent() {
       loadData();
     } else { alert(res.message || '更新失败'); }
   } else {
-    const res = await api.post('/platform/agents', body);
+    const res = await api.post('/agents', body);
     if (res.code === 200) {
       showAddModal.value = false;
       resetForm();

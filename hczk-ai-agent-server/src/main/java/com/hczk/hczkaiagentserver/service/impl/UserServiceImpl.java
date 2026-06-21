@@ -192,4 +192,27 @@ public class UserServiceImpl implements UserService {
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         userMapper.updateById(user);
     }
+
+    /**
+     * 修改密码（已登录用户）
+     * 校验旧密码后更新为新密码
+     *
+     * @param userId      用户ID（雪花ID）
+     * @param oldPassword 旧密码
+     * @param newPassword 新密码
+     * @throws RuntimeException 用户不存在或旧密码错误时抛出
+     */
+    @Override
+    @Transactional
+    public void changePassword(String userId, String oldPassword, String newPassword) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+            throw new RuntimeException("旧密码错误");
+        }
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userMapper.updateById(user);
+    }
 }

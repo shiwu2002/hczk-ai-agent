@@ -19,7 +19,7 @@ function verifyPlatformJWT(req, res, next) {
     const token = authHeader.substring(7);
     const payload = jwt.verify(token, SHARED_SECRET, { issuer: 'hczk-platform' });
     req.user = {
-      id: payload.user_id,
+      id: payload.userId,
       apiKey: payload.apiKey || null
     };
     next();
@@ -106,7 +106,7 @@ def verify_platform_jwt(request: Request):
     token = auth_header[7:]
     try:
         payload = jwt.decode(token, SHARED_SECRET, algorithms=["HS256"], issuer="hczk-platform")
-        return {"user_id": payload["user_id"], "api_key": payload.get("apiKey"), "token": token}
+        return {"user_id": payload["userId"], "api_key": payload.get("apiKey"), "token": token}
     except jwt.InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"JWT 验证失败: {e}")
 

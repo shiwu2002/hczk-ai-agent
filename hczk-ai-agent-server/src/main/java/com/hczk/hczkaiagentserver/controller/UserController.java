@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 用户管理控制器
@@ -89,5 +90,27 @@ public class UserController {
                         .eq(ApiKey::getUserId, id)
                         .orderByDesc(ApiKey::getCreatedAt));
         return Result.success(keys);
+    }
+
+    /**
+     * 修改密码（已登录用户）
+     * 校验旧密码后更新为新密码
+     *
+     * @param id   用户ID（雪花ID）
+     * @param body 请求体，包含 oldPassword 和 newPassword
+     * @return 操作结果
+     */
+    @PutMapping("/{id}/password")
+    public Result<Void> changePassword(@PathVariable String id, @RequestBody Map<String, String> body) {
+        String oldPassword = body.get("oldPassword");
+        String newPassword = body.get("newPassword");
+        if (oldPassword == null || oldPassword.isBlank()) {
+            return Result.error("旧密码不能为空");
+        }
+        if (newPassword == null || newPassword.isBlank()) {
+            return Result.error("新密码不能为空");
+        }
+        userService.changePassword(id, oldPassword, newPassword);
+        return Result.success();
     }
 }

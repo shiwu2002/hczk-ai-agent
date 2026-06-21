@@ -20,6 +20,11 @@
 > **v6.0.0 变更**（相对 v5.0.0）：
 > - `user_id` 不再由平台自动注入，**必须由智能体在调用工具时携带**
 > - JWT Token 新增 `userId` claim，登录时写入
+> - 智能体调用 JWT 中用户标识 claim 从 `user_id` 修正为 `userId`，与登录 JWT 保持一致
 > - 试用场景传递真实用户ID（从JWT认证上下文获取），不再硬编码 "trial"
 > - 工具执行前校验 required 参数，缺失时返回明确错误
 > - `getAgentId()` 不再回退到 "default"，缺失 user_id 时直接报错
+> - JwtAuthenticationFilter 支持识别 agentToken（智能体回调 JWT）
+> - 余额预检查改为预估费用机制（输入Token + 预估输出Token×1.5）
+> - 智能体管理 API 从 `/platform/agents` 迁移至 `/agents`，`/platform/**` 限制 ADMIN 角色
+> - Milvus ensuredCollections 改用 Redis 共享缓存，支持多实例部署

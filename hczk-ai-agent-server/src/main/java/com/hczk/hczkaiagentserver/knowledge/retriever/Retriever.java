@@ -1,6 +1,7 @@
 package com.hczk.hczkaiagentserver.knowledge.retriever;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.JsonObject;
 import com.hczk.hczkaiagentserver.entity.RetrievalLog;
 import com.hczk.hczkaiagentserver.knowledge.config.EmbeddingProperties;
 import com.hczk.hczkaiagentserver.knowledge.config.RetrieveProperties;
@@ -424,35 +425,68 @@ public class Retriever {
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "");
     }
 
-    @Async
+    @Async("knowledgeTaskExecutor")
     public void asyncRecordHit(String collectionName, List<RetrieveResponse.RetrieveResult> results) {
-        for (RetrieveResponse.RetrieveResult result : results) {
-            if (result.getMetadata() != null && result.getMetadata().getChunkId() != null) {
-                try {
-                    String chunkId = result.getMetadata().getChunkId();
-                    QueryReq queryReq = QueryReq.builder()
-                            .collectionName(collectionName)
-                            .filter("id == \"" + escapeFilter(chunkId) + "\"")
-                            .outputFields(List.of("id", "content", "vector", "question", "question_vector",
-                                    "source", "title", "chunk_index", "content_hash", "created_at",
-                                    "ingest_time", "hit_count", "adopt_count", "relevance_score", "chunk_type",
-                                    // v11 新增：溯源字段
-                                    "page_number", "chapter", "context_pages", "table_html", "source_filename"))
-                            .build();
-                    QueryResp queryResp = milvusManager.getClient().query(queryReq);
-                    if (!queryResp.getQueryResults().isEmpty()) {
-                        Map<String, Object> row = new HashMap<>(queryResp.getQueryResults().get(0).getEntity());
-                        long hitCount = row.containsKey("hit_count") ? ((Number) row.get("hit_count")).longValue() + 1 : 1L;
-                        row.put("hit_count", hitCount);
-                        milvusManager.getClient().upsert(UpsertReq.builder()
-                                .collectionName(collectionName)
-                                .data(List.of(MilvusDataConverter.toJsonObject(row)))
-                                .build());
-                    }
-                } catch (Exception e) {
-                    log.debug("Failed to record hit for chunk {}: {}", result.getMetadata().getChunkId(), e.getMessage());
+        if (results == null || results.isEmpty()) return;
+
+        // 收集所有需要更新的 chunkId（去重）
+        List<String> chunkIds = results.stream()
+                .filter(r -> r.getMetadata() != null && r.getMetadata().getChunkId() != null)
+                .map(r -> r.getMetadata().getChunkId())
+                .distinct()
+                .toList();
+        if (chunkIds.isEmpty()) return;
+
+        try {
+            // 批量查询：用 in 表达式一次性查所有 chunk，避免 N+1
+            // Milvus filter: id in ["id1","id2",...]
+            StringBuilder filterBuilder = new StringBuilder("id in [");
+            for (int i = 0; i < chunkIds.size(); i++) {
+                if (i > 0) filterBuilder.append(",");
+                filterBuilder.append("\"").append(escapeFilter(chunkIds.get(i))).append("\"");
+            }
+            filterBuilder.append("]");
+
+            QueryReq queryReq = QueryReq.builder()
+                    .collectionName(collectionName)
+                    .filter(filterBuilder.toString())
+                    .outputFields(List.of("id", "content", "vector", "question", "question_vector",
+                            "source", "title", "chunk_index", "content_hash", "created_at",
+                            "ingest_time", "hit_count", "adopt_count", "relevance_score", "chunk_type",
+                            "page_number", "chapter", "context_pages", "table_html", "source_filename"))
+                    .build();
+            QueryResp queryResp = milvusManager.getClient().query(queryReq);
+
+            if (queryResp.getQueryResults().isEmpty()) return;
+
+            // 统计每个 chunkId 的命中次数（同一 chunk 在一次检索中可能被多次命中）
+            Map<String, Long> hitIncrement = new HashMap<>();
+            for (RetrieveResponse.RetrieveResult r : results) {
+                if (r.getMetadata() != null && r.getMetadata().getChunkId() != null) {
+                    hitIncrement.merge(r.getMetadata().getChunkId(), 1L, Long::sum);
                 }
             }
+
+            // 构造批量 upsert 数据：累加 hit_count
+            List<JsonObject> upsertData = new ArrayList<>();
+            for (QueryResp.QueryResult row : queryResp.getQueryResults()) {
+                Map<String, Object> entity = new HashMap<>(row.getEntity());
+                String id = entity.getOrDefault("id", "").toString();
+                long currentHit = entity.containsKey("hit_count") ? ((Number) entity.get("hit_count")).longValue() : 0L;
+                long increment = hitIncrement.getOrDefault(id, 0L);
+                entity.put("hit_count", currentHit + increment);
+                upsertData.add(MilvusDataConverter.toJsonObject(entity));
+            }
+
+            // 批量 upsert（一次 RPC）
+            if (!upsertData.isEmpty()) {
+                milvusManager.getClient().upsert(UpsertReq.builder()
+                        .collectionName(collectionName)
+                        .data(upsertData)
+                        .build());
+            }
+        } catch (Exception e) {
+            log.debug("Failed to batch record hits for collection {}: {}", collectionName, e.getMessage());
         }
     }
 }

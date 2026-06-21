@@ -23,20 +23,21 @@ public class ToolExecuteService {
     /**
      * 执行内置工具
      * @param toolName 工具名称
-     * @param arguments 工具参数（需包含 user_id 用于用户隔离）
+     * @param arguments 工具参数
+     * @param authenticatedUserId 认证上下文中的 userId（用于数据隔离，禁止从 arguments 回退）
      * @return 执行结果
      */
     @SuppressWarnings("unchecked")
-    public Map<String, Object> execute(String toolName, Map<String, Object> arguments) {
-        log.info("执行工具: name={}, arguments={}", toolName, arguments);
+    public Map<String, Object> execute(String toolName, Map<String, Object> arguments, String authenticatedUserId) {
+        log.info("执行工具: name={}, userId={}, arguments={}", toolName, authenticatedUserId, arguments);
 
         try {
             return switch (toolName) {
-                case "knowledge_search" -> executeKnowledgeSearch(arguments);
-                case "knowledge_ingest" -> executeKnowledgeIngest(arguments);
-                case "knowledge_ingest_file" -> executeKnowledgeIngestFile(arguments);
-                case "knowledge_list_collections" -> executeListCollections(arguments);
-                case "knowledge_get_chunks" -> executeGetChunks(arguments);
+                case "knowledge_search" -> executeKnowledgeSearch(arguments, authenticatedUserId);
+                case "knowledge_ingest" -> executeKnowledgeIngest(arguments, authenticatedUserId);
+                case "knowledge_ingest_file" -> executeKnowledgeIngestFile(arguments, authenticatedUserId);
+                case "knowledge_list_collections" -> executeListCollections(arguments, authenticatedUserId);
+                case "knowledge_get_chunks" -> executeGetChunks(arguments, authenticatedUserId);
                 default -> Map.of("error", "未知工具: " + toolName);
             };
         } catch (Exception e) {
@@ -47,24 +48,20 @@ public class ToolExecuteService {
 
     /**
      * 获取 agentId（雪花ID字符串）
-     * 优先取 user_id，兼容 agent_id
-     * 如果两者都未提供，返回 null（调用方需自行处理）
+     * 安全修复：仅使用认证上下文传入的 authenticatedUserId，禁止从 args 回退，防止越权访问他人知识库
      */
-    private String getAgentId(Map<String, Object> args) {
-        if (args.containsKey("user_id") && args.get("user_id") != null && !String.valueOf(args.get("user_id")).isBlank()) {
-            return String.valueOf(args.get("user_id"));
-        }
-        if (args.containsKey("agent_id") && args.get("agent_id") != null && !String.valueOf(args.get("agent_id")).isBlank()) {
-            return String.valueOf(args.get("agent_id"));
+    private String getAgentId(Map<String, Object> args, String authenticatedUserId) {
+        if (authenticatedUserId != null && !authenticatedUserId.isBlank()) {
+            return authenticatedUserId;
         }
         return null;
     }
 
-    private Map<String, Object> executeKnowledgeSearch(Map<String, Object> args) {
-        String agentId = getAgentId(args);
+    private Map<String, Object> executeKnowledgeSearch(Map<String, Object> args, String authenticatedUserId) {
+        String agentId = getAgentId(args, authenticatedUserId);
         if (agentId == null) {
-            log.warn("knowledge_search 调用缺少 user_id，无法定位知识库集合: args={}", args);
-            return Map.of("success", false, "error", "缺少必填参数 user_id，智能体必须在调用时携带用户ID以定位知识库集合");
+            log.warn("knowledge_search 调用缺少认证 userId，无法定位知识库集合");
+            return Map.of("success", false, "error", "未认证，无法识别用户身份");
         }
 
         RetrieveRequest req = new RetrieveRequest();
@@ -88,10 +85,10 @@ public class ToolExecuteService {
         return Map.of("success", false, "error", result.getMessage());
     }
 
-    private Map<String, Object> executeKnowledgeIngest(Map<String, Object> args) {
-        String agentId = getAgentId(args);
+    private Map<String, Object> executeKnowledgeIngest(Map<String, Object> args, String authenticatedUserId) {
+        String agentId = getAgentId(args, authenticatedUserId);
         if (agentId == null) {
-            return Map.of("success", false, "error", "缺少必填参数 user_id，智能体必须在调用时携带用户ID以定位知识库集合");
+            return Map.of("success", false, "error", "未认证，无法识别用户身份");
         }
 
         IngestRequest req = new IngestRequest();
@@ -115,7 +112,7 @@ public class ToolExecuteService {
         return Map.of("success", false, "error", result.getMessage());
     }
 
-    private Map<String, Object> executeKnowledgeIngestFile(Map<String, Object> args) {
+    private Map<String, Object> executeKnowledgeIngestFile(Map<String, Object> args, String authenticatedUserId) {
         return Map.of(
             "success", false,
             "message", "文件上传需要直接调用 POST /knowledge/ingest/file 接口（multipart/form-data）",
@@ -123,8 +120,8 @@ public class ToolExecuteService {
         );
     }
 
-    private Map<String, Object> executeListCollections(Map<String, Object> args) {
-        String agentId = getAgentId(args);
+    private Map<String, Object> executeListCollections(Map<String, Object> args, String authenticatedUserId) {
+        String agentId = getAgentId(args, authenticatedUserId);
         Result<List<CollectionInfo>> result = knowledgeController.listCollections(
                 agentId != null && !agentId.isEmpty() ? agentId : null);
         if (result.getCode() == 200 && result.getData() != null) {
@@ -141,9 +138,9 @@ public class ToolExecuteService {
         return Map.of("success", false, "error", result.getMessage());
     }
 
-    private Map<String, Object> executeGetChunks(Map<String, Object> args) {
+    private Map<String, Object> executeGetChunks(Map<String, Object> args, String authenticatedUserId) {
         String collectionName = (String) args.get("collection_name");
-        String agentId = getAgentId(args);
+        String agentId = getAgentId(args, authenticatedUserId);
         int limit = args.containsKey("limit") ? ((Number) args.get("limit")).intValue() : 20;
 
         Result<List<ChunkItem>> result = knowledgeController.browseChunks(collectionName, agentId, null, null, limit);

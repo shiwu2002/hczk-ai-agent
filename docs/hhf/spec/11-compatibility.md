@@ -9,4 +9,4 @@
 - **v6.0.0 新增字段**（`tools_execution_endpoint`、`tools_auth_token`）为可选，旧版智能体可忽略
 - **user_id 必须由智能体携带**：平台不再自动注入，智能体调用工具时必须从对话请求的 `user_id` 字段获取并传递
 - **溯源信息**：检索结果中的 `metadata` 字段为新增，旧版智能体可忽略
-- **JWT Token 变更**：登录 JWT 新增 `userId` claim，智能体调用 JWT 结构不变
+- **JWT Token 变更**：登录 JWT 新增 `userId` claim；智能体调用 JWT 中用户标识 claim 从 `user_id` 修正为 `userId`（与登录 JWT 保持一致），智能体端需同步更新 payload 解析字段名

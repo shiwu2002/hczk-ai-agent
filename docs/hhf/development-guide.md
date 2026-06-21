@@ -130,6 +130,7 @@
 | /api/users/me | GET | 获取当前用户信息 |
 | /api/users | GET | 获取所有用户（管理员） |
 | /api/users/{id} | PUT | 更新用户信息 |
+| /api/users/{id}/password | PUT | 修改用户密码（需校验旧密码） |
 
 ### 4.3 模型管理
 
@@ -143,16 +144,19 @@
 
 ### 4.4 智能体管理（注册中心）
 
+> **路径变更说明**：智能体 CRUD 已从 `/platform/agents` 迁移至 `/agents`，由 AgentController 统一提供。
+> `/platform/**` 路径现在限制为 ADMIN 角色才能访问。
+
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| /platform/agents | GET | 获取所有智能体 |
-| /platform/agents | POST | 注册智能体 |
-| /platform/agents/{id} | GET | 获取智能体详情 |
-| /platform/agents/{id} | PUT | 更新智能体 |
-| /platform/agents/{id} | DELETE | 注销智能体 |
-| /platform/agents/{id}/toggle | POST | 切换启用/禁用 |
-| /agents/health | GET | 批量健康检测 |
-| /agents/{id}/health | GET | 单个健康检测 |
+| /agents | GET | 获取智能体列表（ADMIN 获取全部，普通用户仅自己的） |
+| /agents | POST | 注册智能体 |
+| /agents/{id} | GET | 获取智能体详情 |
+| /agents/{id} | PUT | 更新智能体 |
+| /agents/{id} | DELETE | 注销智能体 |
+| /agents/{id}/toggle | POST | 切换启用/禁用 |
+| /agents/health | GET | 批量健康检测（公开） |
+| /agents/{id}/health | GET | 单个健康检测（公开） |
 | /agents/{id}/info | GET | 获取智能体元信息 |
 
 ### 4.5 API Key 管理
@@ -203,7 +207,7 @@
     ↓
 ChatService / 路由到智能体
     ↓ 1. 通过 API Key 查询所属用户
-    ↓ 2. 检查用户余额是否充足
+    ↓ 2. 余额预检查：预估本次调用费用（输入Token + 预估输出Token×1.5），余额不足则拒绝请求
     ↓ 3. 估算输入 tokens
     ↓ 4. 调用模型/智能体，获取回复
     ↓
@@ -212,6 +216,7 @@ processBilling()
     ↓ 2. 费用 = (input_tokens + output_tokens) / 1000 × unit_price
     ↓ 3. BillingService.deductBalance() 扣减余额 + 写入 billing_records
     ↓ 4. 更新 API Key 统计
+    ↓ 5. 扣费失败时记入欠费日志，下次请求时余额预检查拦截
 ```
 
 ### 5.2 Token 估算规则
@@ -231,8 +236,9 @@ processBilling()
 
 ### 5.4 余额不足处理
 
-- 余额不足时，`BillingService.deductBalance()` 返回 `false`
-- 系统记录警告日志，**不会中断已完成的对话**
+- 请求前进行余额预检查：预估本次调用费用（输入Token + 预估输出Token×1.5），余额不足则直接拒绝请求
+- 流式响应完成后扣费，若扣费失败（余额为负），记入欠费日志
+- 下次请求时余额预检查会拦截（余额为负或不足预估费用）
 - 用户需充值后才能继续调用
 
 ---
@@ -263,6 +269,11 @@ npm install
 npm run build
 # 部署 dist 目录到 Nginx/静态服务器
 ```
+
+> **环境变量配置**：前端通过 `VITE_API_BASE` 环境变量指定后端 API 地址。
+> - 开发环境：`.env` 文件中配置 `VITE_API_BASE=http://localhost:8080/api`
+> - 生产环境：`.env.production` 文件中配置 `VITE_API_BASE=/api`（或实际 API 地址）
+> - 也可通过构建参数覆盖：`VITE_API_BASE=https://api.example.com/api npm run build`
 
 ### 6.4 数据库初始化
 

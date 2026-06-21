@@ -120,11 +120,18 @@ public class ChatService {
             throw new RuntimeException("模型已停用");
         }
 
-        // 3. 余额预检查（仅当unitPrice > 0时检查，免费模型跳过）
+        // 3. 余额预检查（仅当unitPrice > 0时检查，免费模型跳过）            // 预检查按预估费用（输入Token + 预估输出Token）冻结判断，避免余额 0.01 元也放行
         if (apiKey.getUnitPrice() != null && apiKey.getUnitPrice().compareTo(BigDecimal.ZERO) > 0) {
+            long estimatedInputTokens = TokenCounter.estimateInputTokens(null, effectiveMessage);
+            // 预估输出 Token：按输入的 1.5 倍估算（保守上限），最少 1024
+            long estimatedOutputTokens = Math.max(1024L, (long)(estimatedInputTokens * 1.5));
+            BigDecimal estimatedCost = apiKey.getUnitPrice()
+                    .multiply(BigDecimal.valueOf(estimatedInputTokens + estimatedOutputTokens))
+                    .divide(BigDecimal.valueOf(1000), 4, java.math.RoundingMode.HALF_UP);
             BigDecimal balance = billingService.getUserBalanceFromCache(userId);
-            if (balance.compareTo(BigDecimal.ZERO) <= 0) {
-                throw new RuntimeException("余额不足，请先充值");
+            if (balance.compareTo(estimatedCost) < 0) {
+                log.warn("余额预检查不通过: userId={}, balance={}, estimatedCost={}", userId, balance, estimatedCost);
+                throw new RuntimeException("余额不足，预估费用 " + estimatedCost.toPlainString() + " 元，请先充值");
             }
         }
 
@@ -150,17 +157,17 @@ public class ChatService {
             long startTime = System.currentTimeMillis();
 
             // SSE生命周期回调
+            // 注意：不在回调中清理 ThreadLocal，因为回调运行在 Reactor 线程，
+            // 清理的是错误线程的 ThreadLocal，且会干扰并发请求。
+            // ThreadLocal 清理统一在主线程 try-finally 中完成（见方法末尾）
             emitter.onCompletion(() -> {
                 completed.set(true);
-                chatModelFactory.clearRequestThinking();
             });
             emitter.onTimeout(() -> {
                 completed.set(true);
-                chatModelFactory.clearRequestThinking();
             });
             emitter.onError(e -> {
                 completed.set(true);
-                chatModelFactory.clearRequestThinking();
             });
 
             // 订阅流式响应
@@ -234,7 +241,6 @@ public class ChatService {
                             }
                             saveChatLog(finalModel, effectiveMessage, outputContent.toString(),
                                     inputTokens, finalUserId, finalApiKeyId, startTime, "failed", error.getMessage(), BigDecimal.ZERO);
-                            chatModelFactory.clearRequestThinking();
                         }
                     },
                     // 完成回调：发送[DONE]标记，触发计费
@@ -255,10 +261,15 @@ public class ChatService {
                             // 流式完成后统计Token并扣费
                             processBilling(finalModel, effectiveMessage, inputTokens, outputContent.toString(),
                                     finalUserId, finalApiKeyId, unitPrice, startTime);
-                            chatModelFactory.clearRequestThinking();
                         }
                     }
             );
+
+            // 主线程立即清理 ThreadLocal：
+            // stream(prompt) 是非阻塞的，订阅时 thinking 参数已被读取到请求构建中，
+            // 此处清理主线程 ThreadLocal，避免影响后续请求。
+            // 注意：不能在 flux.subscribe 的回调中清理（不同线程）。
+            chatModelFactory.clearRequestThinking();
 
             return emitter;
         } catch (Exception e) {
@@ -307,9 +318,14 @@ public class ChatService {
         }
 
         if (apiKey.getUnitPrice() != null && apiKey.getUnitPrice().compareTo(BigDecimal.ZERO) > 0) {
+            long estimatedInputTokens = TokenCounter.estimateInputTokens(null, effectiveMessage);
+            long estimatedOutputTokens = Math.max(1024L, (long)(estimatedInputTokens * 1.5));
+            BigDecimal estimatedCost = apiKey.getUnitPrice()
+                    .multiply(BigDecimal.valueOf(estimatedInputTokens + estimatedOutputTokens))
+                    .divide(BigDecimal.valueOf(1000), 4, java.math.RoundingMode.HALF_UP);
             BigDecimal balance = billingService.getUserBalanceFromCache(userId);
-            if (balance.compareTo(BigDecimal.ZERO) <= 0) {
-                throw new RuntimeException("余额不足，请先充值");
+            if (balance.compareTo(estimatedCost) < 0) {
+                throw new RuntimeException("余额不足，预估费用 " + estimatedCost.toPlainString() + " 元，请先充值");
             }
         }
 
@@ -484,10 +500,13 @@ public class ChatService {
             if (success) {
                 log.info("计费成功: userId={}, apiKeyId={}, cost={}元", userId, apiKeyId, totalCost);
             } else {
-                log.warn("计费失败（余额不足）: userId={}, cost={}元", userId, totalCost);
+                // 流式响应已返回客户端，扣费失败无法回滚，记入欠费日志
+                // 下次请求时余额预检查会拦截（余额为负或不足）
+                log.error("计费失败（欠费）: userId={}, apiKeyId={}, cost={}元，已记入欠费，下次请求将被拦截",
+                        userId, apiKeyId, totalCost);
             }
 
-            // 保存对话日志
+            // 保存对话日志（无论扣费是否成功，都记录本次调用）
             saveChatLog(model, inputContent, outputText, inputTokens, userId, apiKeyId, startTime, "success", null, totalCost);
 
         } catch (Exception e) {
@@ -588,12 +607,15 @@ public class ChatService {
 
     /**
      * 转义 JSON 字符串中的特殊字符
+     * 覆盖 JSON 规范要求转义的控制字符：\b \f \n \r \t 以及 \" \\
      */
     private String escapeJson(String text) {
         if (text == null) return "";
         return text
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
+            .replace("\b", "\\b")
+            .replace("\f", "\\f")
             .replace("\n", "\\n")
             .replace("\r", "\\r")
             .replace("\t", "\\t");

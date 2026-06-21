@@ -73,7 +73,9 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         }
 
         knowledgeBaseMapper.insert(knowledgeBase);
+        // 失效缓存：前缀失效 + 精确失效 findByAgentIdAndCollection 的独立缓存 key
         redisCache.invalidateByPrefix(CACHE_PREFIX);
+        redisCache.deleteKey(CACHE_PREFIX + knowledgeBase.getAgentId() + ":" + knowledgeBase.getCollectionName());
         return knowledgeBase;
     }
 
@@ -86,15 +88,22 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         existing.setRowCount(knowledgeBase.getRowCount());
         existing.setStatus(knowledgeBase.getStatus());
         knowledgeBaseMapper.updateById(existing);
+        // 失效缓存：前缀失效 + 精确失效
         redisCache.invalidateByPrefix(CACHE_PREFIX);
+        redisCache.deleteKey(CACHE_PREFIX + existing.getAgentId() + ":" + existing.getCollectionName());
         return existing;
     }
 
     @Override
     @Transactional
     public void deleteKnowledgeBase(Long id) {
+        KnowledgeBase existing = getById(id);
         knowledgeBaseMapper.deleteById(id);
+        // 失效缓存：前缀失效 + 精确失效
         redisCache.invalidateByPrefix(CACHE_PREFIX);
+        if (existing != null) {
+            redisCache.deleteKey(CACHE_PREFIX + existing.getAgentId() + ":" + existing.getCollectionName());
+        }
     }
 
     @Override
