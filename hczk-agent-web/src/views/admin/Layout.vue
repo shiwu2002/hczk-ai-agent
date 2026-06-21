@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
   LayoutDashboard, Bot, Server, Cpu, KeyRound, Users,
-  Receipt, MessageSquare, Plug, Settings, LogOut, ChevronRight, Shield, Database, FlaskConical,
+  Receipt, MessageSquare, Settings, LogOut, ChevronRight, Shield, Database, FlaskConical,
   Activity, ChevronDown, Sparkles, Menu, X
 } from 'lucide-vue-next'
 
@@ -60,7 +60,6 @@ const navGroups = [
   {
     label: '系统配置',
     items: [
-      { path: '/admin/platforms', name: '平台对接', icon: Plug },
       { path: '/admin/settings', name: '系统设置', icon: Settings }
     ]
   }

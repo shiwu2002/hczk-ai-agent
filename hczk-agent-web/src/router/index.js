@@ -53,7 +53,6 @@ const router = createRouter({
         { path: 'billing', name: 'admin-billing', component: () => import('@/views/admin/Billing.vue') },
         { path: 'chat-logs', name: 'admin-chat-logs', component: () => import('@/views/admin/ChatLogs.vue') },
         { path: 'retrieval-logs', name: 'admin-retrieval-logs', component: () => import('@/views/admin/RetrievalLogs.vue') },
-        { path: 'platforms', name: 'admin-platforms', component: () => import('@/views/admin/Platforms.vue') },
         { path: 'settings', name: 'admin-settings', component: () => import('@/views/admin/Settings.vue') }
       ]
     },

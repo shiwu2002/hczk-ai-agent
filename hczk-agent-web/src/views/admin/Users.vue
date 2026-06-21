@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useApiStore } from '@/stores/api'
-import { Users, Search, Filter, Wallet, BarChart3, KeyRound, X, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { Users, Search, BarChart3, Wallet, X, ChevronLeft, ChevronRight, UserCheck, Coins, Cpu, KeyRound } from 'lucide-vue-next'
 
 const api = useApiStore()
 const loading = ref(false)
@@ -51,6 +51,34 @@ const pagedUsers = computed(() => {
 })
 function goToPage(page) {
   if (page >= 1 && page <= totalPages.value) currentPage.value = page
+}
+
+/** 顶部统计 */
+const stats = computed(() => {
+  const list = users.value
+  const total = list.length
+  const active = list.filter(u => u.status === 0).length
+  const totalBalance = list.reduce((s, u) => s + (u.balance || 0), 0)
+  const totalTokens = list.reduce((s, u) => s + (u.totalUsageTokens || 0), 0)
+  return { total, active, totalBalance, totalTokens }
+})
+
+/** 相对时间 */
+function relativeTime(dateStr) {
+  if (!dateStr) return '-'
+  const now = Date.now()
+  const diff = now - new Date(dateStr).getTime()
+  const sec = Math.floor(diff / 1000)
+  if (sec < 60) return '刚刚'
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}分钟前`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr}小时前`
+  const day = Math.floor(hr / 24)
+  if (day < 30) return `${day}天前`
+  const month = Math.floor(day / 30)
+  if (month < 12) return `${month}个月前`
+  return `${Math.floor(month / 12)}年前`
 }
 
 /** 打开用户详情弹窗 */
@@ -112,27 +140,55 @@ async function doRecharge() {
 </script>
 
 <template>
-  <div class="space-y-6 animate-fade-in">
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-bold text-white">用户管理</h1>
-        <p class="text-slate-400 mt-1">管理平台所有注册用户，查看用量与余额</p>
+  <div class="space-y-5 animate-fade-in">
+    <!-- 顶部统计 -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="glass-card rounded-xl p-3.5 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
+          <Users class="w-4.5 h-4.5 text-blue-400" />
+        </div>
+        <div>
+          <p class="text-xs text-slate-400">总用户</p>
+          <p class="text-lg font-semibold text-white">{{ stats.total }}</p>
+        </div>
+      </div>
+      <div class="glass-card rounded-xl p-3.5 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+          <UserCheck class="w-4.5 h-4.5 text-emerald-400" />
+        </div>
+        <div>
+          <p class="text-xs text-slate-400">活跃用户</p>
+          <p class="text-lg font-semibold text-white">{{ stats.active }}</p>
+        </div>
+      </div>
+      <div class="glass-card rounded-xl p-3.5 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center">
+          <Coins class="w-4.5 h-4.5 text-amber-400" />
+        </div>
+        <div>
+          <p class="text-xs text-slate-400">总余额</p>
+          <p class="text-lg font-semibold text-emerald-400">¥{{ stats.totalBalance.toFixed(2) }}</p>
+        </div>
+      </div>
+      <div class="glass-card rounded-xl p-3.5 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-purple-500/10 flex items-center justify-center">
+          <Cpu class="w-4.5 h-4.5 text-purple-400" />
+        </div>
+        <div>
+          <p class="text-xs text-slate-400">总Token</p>
+          <p class="text-lg font-semibold text-white">{{ stats.totalTokens.toLocaleString() }}</p>
+        </div>
       </div>
     </div>
 
-    <!-- Search & Filter -->
-    <div class="flex gap-4">
-      <div class="flex-1 relative">
-        <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-        <input v-model="searchQuery" class="input-field pl-10" placeholder="搜索用户名称或邮箱..." />
-      </div>
-      <button class="btn-secondary flex items-center gap-2">
-        <Filter class="w-4 h-4" /> 筛选
-      </button>
+    <!-- 搜索栏 -->
+    <div class="relative">
+      <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+      <input v-model="searchQuery" class="input-field pl-10" placeholder="搜索用户名称或邮箱..." />
     </div>
 
-    <!-- Users Table -->
-    <div class="glass-card p-6">
+    <!-- 用户列表 -->
+    <div class="glass-card rounded-2xl overflow-hidden">
       <div v-if="loading" class="flex items-center justify-center py-12">
         <div class="w-6 h-6 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
         <span class="ml-3 text-slate-400">加载中...</span>
@@ -141,84 +197,117 @@ async function doRecharge() {
         <Users class="w-12 h-12 mb-3 opacity-30" />
         <p>暂无用户</p>
       </div>
-      <div v-else class="overflow-x-auto">
-        <table class="w-full">
-          <thead>
-            <tr class="border-b border-white/5">
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">用户</th>
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">邮箱</th>
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">手机号</th>
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">公司</th>
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">角色</th>
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">状态</th>
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">余额</th>
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">总Token</th>
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">注册时间</th>
-              <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider pb-3">操作</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-white/5">
-            <tr v-for="user in pagedUsers" :key="user.userId" class="hover:bg-white/5 transition-colors">
-              <td class="py-4">
-                <div class="flex items-center gap-3">
-                  <div class="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white text-sm font-bold">
-                    {{ (user.name || user.username || '?')[0] }}
-                  </div>
-                  <span class="text-sm text-white">{{ user.name || user.username }}</span>
+      <template v-else>
+        <!-- 表头 (桌面端) -->
+        <div class="hidden md:grid grid-cols-[2fr_1.5fr_0.8fr_0.8fr_0.8fr_0.8fr_0.8fr_0.6fr] gap-2 px-5 py-3 border-b border-white/5 text-xs font-medium text-slate-400 uppercase tracking-wider">
+          <span>用户</span>
+          <span>邮箱</span>
+          <span>角色</span>
+          <span>状态</span>
+          <span>余额</span>
+          <span>Tokens</span>
+          <span>注册时间</span>
+          <span class="text-right">操作</span>
+        </div>
+
+        <!-- 桌面端行 -->
+        <div class="hidden md:block divide-y divide-white/5">
+          <div v-for="user in pagedUsers" :key="user.userId" class="grid grid-cols-[2fr_1.5fr_0.8fr_0.8fr_0.8fr_0.8fr_0.8fr_0.6fr] gap-2 px-5 py-3 items-center hover:bg-white/[0.02] transition-colors group">
+            <!-- 用户 -->
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                {{ (user.name || user.username || '?')[0] }}
+              </div>
+              <span class="text-sm text-white truncate">{{ user.name || user.username }}</span>
+            </div>
+            <!-- 邮箱 -->
+            <span class="text-sm text-slate-400 truncate">{{ user.email || '-' }}</span>
+            <!-- 角色 -->
+            <span :class="['inline-flex px-2 py-0.5 text-xs rounded-full border w-fit', user.role === 0 ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20']">
+              {{ user.role === 0 ? '管理员' : '用户' }}
+            </span>
+            <!-- 状态 -->
+            <span class="flex items-center gap-1.5 text-sm">
+              <span class="w-1.5 h-1.5 rounded-full" :class="user.status === 0 ? 'bg-emerald-400' : 'bg-slate-500'"></span>
+              <span :class="user.status === 0 ? 'text-emerald-400' : 'text-slate-500'">{{ user.status === 0 ? '正常' : '已冻结' }}</span>
+            </span>
+            <!-- 余额 -->
+            <span class="text-sm font-medium" :class="(user.balance || 0) > 0 ? 'text-emerald-400' : 'text-slate-500'">
+              ¥{{ (user.balance || 0).toFixed(2) }}
+            </span>
+            <!-- Tokens -->
+            <span class="text-sm text-slate-300">{{ (user.totalUsageTokens || 0).toLocaleString() }}</span>
+            <!-- 注册时间 -->
+            <span class="text-sm text-slate-500">{{ relativeTime(user.createdAt) }}</span>
+            <!-- 操作 -->
+            <div class="flex items-center justify-end gap-1">
+              <button @click="openDetail(user)" class="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition-colors" title="使用明细">
+                <BarChart3 class="w-4 h-4" />
+              </button>
+              <button @click="openRecharge(user)" class="p-1.5 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors" title="充值">
+                <Wallet class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 移动端卡片 -->
+        <div class="md:hidden divide-y divide-white/5">
+          <div v-for="user in pagedUsers" :key="'m-' + user.userId" class="px-4 py-3.5 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white text-xs font-bold">
+                  {{ (user.name || user.username || '?')[0] }}
                 </div>
-              </td>
-              <td class="py-4 text-sm text-slate-300">{{ user.email || '-' }}</td>
-              <td class="py-4 text-sm text-slate-300">{{ user.phoneNumber || '-' }}</td>
-              <td class="py-4 text-sm text-slate-300">{{ user.companyName || '-' }}</td>
-              <td class="py-4">
-                <span :class="['px-2 py-0.5 text-xs rounded-full border', user.role === 0 ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20']">
-                  {{ user.role === 0 ? '管理员' : '用户' }}
-                </span>
-              </td>
-              <td class="py-4">
-                <span :class="['px-2 py-1 text-xs rounded-full border', user.status === 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border-slate-500/20']">
-                  {{ user.status === 0 ? '正常' : '已冻结' }}
-                </span>
-              </td>
-              <td class="py-4">
-                <span class="text-sm font-medium" :class="(user.balance || 0) > 0 ? 'text-emerald-400' : 'text-slate-400'">
-                  ¥{{ (user.balance || 0).toFixed(2) }}
-                </span>
-              </td>
-              <td class="py-4 text-sm text-slate-300">{{ (user.totalUsageTokens || 0).toLocaleString() }}</td>
-              <td class="py-4 text-sm text-slate-400">{{ user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-' }}</td>
-              <td class="py-4">
-                <div class="flex items-center gap-2">
-                  <button @click="openDetail(user)" class="p-2 rounded-lg bg-white/5 text-amber-400 hover:bg-amber-500/10" title="使用明细">
-                    <BarChart3 class="w-4 h-4" />
-                  </button>
-                  <button @click="openRecharge(user)" class="p-2 rounded-lg bg-white/5 text-emerald-400 hover:bg-emerald-500/10" title="充值">
-                    <Wallet class="w-4 h-4" />
-                  </button>
+                <div>
+                  <p class="text-sm text-white font-medium">{{ user.name || user.username }}</p>
+                  <p class="text-xs text-slate-500">{{ user.email || '-' }}</p>
                 </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+              </div>
+              <div class="flex items-center gap-1">
+                <button @click="openDetail(user)" class="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition-colors">
+                  <BarChart3 class="w-4 h-4" />
+                </button>
+                <button @click="openRecharge(user)" class="p-1.5 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors">
+                  <Wallet class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 text-xs">
+              <span :class="['px-1.5 py-0.5 rounded-full border', user.role === 0 ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20']">
+                {{ user.role === 0 ? '管理员' : '用户' }}
+              </span>
+              <span class="flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full" :class="user.status === 0 ? 'bg-emerald-400' : 'bg-slate-500'"></span>
+                <span :class="user.status === 0 ? 'text-emerald-400' : 'text-slate-500'">{{ user.status === 0 ? '正常' : '已冻结' }}</span>
+              </span>
+              <span class="text-slate-400">{{ relativeTime(user.createdAt) }}</span>
+            </div>
+            <div class="flex items-center gap-4 text-xs">
+              <span class="text-slate-400">余额 <span :class="(user.balance || 0) > 0 ? 'text-emerald-400 font-medium' : 'text-slate-500'">¥{{ (user.balance || 0).toFixed(2) }}</span></span>
+              <span class="text-slate-400">Token <span class="text-slate-300">{{ (user.totalUsageTokens || 0).toLocaleString() }}</span></span>
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
 
-    <!-- 分页控件 -->
-    <div v-if="filteredUsers.length > pageSize" class="flex items-center justify-between pt-2">
-      <span class="text-sm text-slate-400">共 {{ filteredUsers.length }} 个用户</span>
+    <!-- 分页 -->
+    <div v-if="filteredUsers.length > pageSize" class="flex items-center justify-between">
+      <span class="text-xs text-slate-500">共 {{ filteredUsers.length }} 个用户</span>
       <div class="flex items-center gap-1">
         <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 1"
-          class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          class="p-1.5 rounded-lg bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
           <ChevronLeft class="w-4 h-4" />
         </button>
         <template v-for="p in totalPages" :key="p">
           <button @click="goToPage(p)"
-            :class="['w-8 h-8 rounded-lg text-sm transition-colors', p === currentPage ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-300 hover:bg-white/10']">
+            :class="['w-7 h-7 rounded-lg text-xs font-medium transition-colors', p === currentPage ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white']">
             {{ p }}
           </button>
         </template>
         <button @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages"
-          class="p-2 rounded-lg bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          class="p-1.5 rounded-lg bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
           <ChevronRight class="w-4 h-4" />
         </button>
       </div>
@@ -226,61 +315,61 @@ async function doRecharge() {
 
     <!-- 用户详情弹窗 -->
     <div v-if="showDetailModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" @click.self="showDetailModal = false">
-      <div class="glass-card w-full max-w-5xl p-6 animate-slide-up flex flex-col max-h-[85vh]">
+      <div class="glass-card rounded-2xl w-full max-w-5xl p-6 animate-slide-up flex flex-col max-h-[85vh]">
         <!-- 头部 -->
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center justify-between pb-4 border-b border-white/5">
           <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white font-bold">
               {{ (detailUser?.name || detailUser?.username || '?')[0] }}
             </div>
             <div>
-              <h2 class="text-xl font-bold text-white">{{ detailUser?.name || detailUser?.username }}</h2>
+              <h2 class="text-lg font-bold text-white">{{ detailUser?.name || detailUser?.username }}</h2>
               <p class="text-sm text-slate-400">{{ detailUser?.email || '-' }}</p>
             </div>
           </div>
-          <button @click="showDetailModal = false" class="p-1 text-slate-400 hover:text-white">
+          <button @click="showDetailModal = false" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
             <X class="w-5 h-5" />
           </button>
         </div>
 
         <!-- 汇总统计 -->
-        <div class="grid grid-cols-5 gap-3 mb-4">
-          <div class="bg-slate-800/50 rounded-lg p-3 border border-white/5 text-center">
+        <div class="grid grid-cols-5 gap-3 py-4">
+          <div class="glass-card rounded-xl p-3 text-center">
             <p class="text-xs text-slate-400 mb-1">余额</p>
             <p class="text-base font-semibold text-emerald-400">¥{{ (detailUser?.balance || 0).toFixed(2) }}</p>
           </div>
-          <div class="bg-slate-800/50 rounded-lg p-3 border border-white/5 text-center">
+          <div class="glass-card rounded-xl p-3 text-center">
             <p class="text-xs text-slate-400 mb-1">调用次数</p>
             <p class="text-base font-semibold text-white">{{ usageSummary.count.toLocaleString() }}</p>
           </div>
-          <div class="bg-slate-800/50 rounded-lg p-3 border border-white/5 text-center">
+          <div class="glass-card rounded-xl p-3 text-center">
             <p class="text-xs text-slate-400 mb-1">输入 Token</p>
             <p class="text-base font-semibold text-cyan-400">{{ usageSummary.totalInput.toLocaleString() }}</p>
           </div>
-          <div class="bg-slate-800/50 rounded-lg p-3 border border-white/5 text-center">
+          <div class="glass-card rounded-xl p-3 text-center">
             <p class="text-xs text-slate-400 mb-1">输出 Token</p>
             <p class="text-base font-semibold text-amber-400">{{ usageSummary.totalOutput.toLocaleString() }}</p>
           </div>
-          <div class="bg-slate-800/50 rounded-lg p-3 border border-white/5 text-center">
+          <div class="glass-card rounded-xl p-3 text-center">
             <p class="text-xs text-slate-400 mb-1">总费用</p>
             <p class="text-base font-semibold text-emerald-400">¥{{ usageSummary.totalCost.toFixed(4) }}</p>
           </div>
         </div>
 
         <!-- Tab 切换 -->
-        <div class="flex gap-1 mb-4 border-b border-white/5 pb-0">
+        <div class="flex gap-1 border-b border-white/5">
           <button
             @click="detailTab = 'usage'"
-            :class="['px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px', detailTab === 'usage' ? 'text-emerald-400 border-emerald-400' : 'text-slate-400 border-transparent hover:text-slate-300']"
+            :class="['px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px', detailTab === 'usage' ? 'text-emerald-400 border-emerald-400' : 'text-slate-400 border-transparent hover:text-slate-300']"
           >调用明细</button>
           <button
             @click="detailTab = 'apikeys'"
-            :class="['px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px', detailTab === 'apikeys' ? 'text-emerald-400 border-emerald-400' : 'text-slate-400 border-transparent hover:text-slate-300']"
+            :class="['px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px', detailTab === 'apikeys' ? 'text-emerald-400 border-emerald-400' : 'text-slate-400 border-transparent hover:text-slate-300']"
           >API Keys</button>
         </div>
 
         <!-- 内容区 -->
-        <div class="flex-1 overflow-y-auto">
+        <div class="flex-1 overflow-y-auto mt-3">
           <div v-if="detailLoading" class="flex items-center justify-center py-8">
             <div class="w-5 h-5 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
             <span class="ml-2 text-slate-400 text-sm">加载中...</span>
@@ -302,7 +391,7 @@ async function doRecharge() {
                 </tr>
               </thead>
               <tbody class="divide-y divide-white/5">
-                <tr v-for="record in detailUsage" :key="record.id" class="hover:bg-white/5 transition-colors">
+                <tr v-for="record in detailUsage" :key="record.id" class="hover:bg-white/[0.02] transition-colors">
                   <td class="py-3 text-sm text-slate-300">{{ record.createdAt ? new Date(record.createdAt).toLocaleString() : '-' }}</td>
                   <td class="py-3 text-sm text-cyan-400">{{ (record.inputTokens || 0).toLocaleString() }}</td>
                   <td class="py-3 text-sm text-amber-400">{{ (record.outputTokens || 0).toLocaleString() }}</td>
@@ -332,7 +421,7 @@ async function doRecharge() {
                 </tr>
               </thead>
               <tbody class="divide-y divide-white/5">
-                <tr v-for="key in detailApiKeys" :key="key.id" class="hover:bg-white/5 transition-colors">
+                <tr v-for="key in detailApiKeys" :key="key.id" class="hover:bg-white/[0.02] transition-colors">
                   <td class="py-3">
                     <div class="flex items-center gap-2">
                       <KeyRound class="w-4 h-4 text-emerald-400" />
@@ -364,17 +453,17 @@ async function doRecharge() {
 
     <!-- 充值弹窗 -->
     <div v-if="showRechargeModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" @click.self="showRechargeModal = false">
-      <div class="glass-card w-full max-w-md p-6 animate-slide-up">
+      <div class="glass-card rounded-2xl w-full max-w-md p-6 animate-slide-up">
         <!-- 头部 -->
-        <div class="flex items-center justify-between mb-5">
+        <div class="flex items-center justify-between pb-4 border-b border-white/5">
           <h2 class="text-lg font-bold text-white">充值 - {{ rechargeForm.userName }}</h2>
-          <button @click="showRechargeModal = false" class="p-1 text-slate-400 hover:text-white">
+          <button @click="showRechargeModal = false" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
             <X class="w-5 h-5" />
           </button>
         </div>
 
         <!-- 金额 -->
-        <div class="mb-4">
+        <div class="mt-4 mb-4">
           <label class="block text-sm text-slate-400 mb-1.5">充值金额</label>
           <input v-model.number="rechargeForm.amount" type="number" min="1" step="0.01" class="input-field" placeholder="请输入充值金额" />
         </div>
@@ -407,7 +496,9 @@ async function doRecharge() {
         <!-- 按钮 -->
         <div class="flex justify-end gap-3">
           <button @click="showRechargeModal = false" class="btn-secondary">取消</button>
-          <button @click="doRecharge" class="btn-primary">确认充值</button>
+          <button @click="doRecharge" class="px-5 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-sm font-medium hover:from-emerald-400 hover:to-cyan-400 transition-all shadow-lg shadow-emerald-500/20">
+            确认充值
+          </button>
         </div>
       </div>
     </div>
