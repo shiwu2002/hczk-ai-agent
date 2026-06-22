@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import {
   LayoutDashboard, Bot, Server, Cpu, KeyRound, Users,
   Receipt, MessageSquare, Settings, LogOut, ChevronRight, Shield, Database, FlaskConical,
-  Activity, ChevronDown, Sparkles, Menu, X
+  Activity, ChevronDown, Sparkles, Menu, X, Terminal
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -37,6 +37,7 @@ const navGroups = [
     items: [
       { path: '/admin/agents', name: '智能体管理', icon: Bot },
       { path: '/admin/skills', name: 'Skill 管理', icon: Server },
+      { path: '/admin/cli-anything', name: 'CLI 工具市场', icon: Terminal },
       { path: '/admin/knowledge', name: '知识库管理', icon: Database },
       { path: '/admin/retrieval-logs', name: '检索监控', icon: Activity }
     ]

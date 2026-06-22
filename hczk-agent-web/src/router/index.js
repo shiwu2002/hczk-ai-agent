@@ -43,6 +43,7 @@ const router = createRouter({
         { path: 'dashboard', name: 'admin-dashboard', component: () => import('@/views/admin/Dashboard.vue') },
         { path: 'agents', name: 'admin-agents', component: () => import('@/views/admin/Agents.vue') },
         { path: 'skills', name: 'admin-skills', component: () => import('@/views/admin/Skills.vue') },
+        { path: 'cli-anything', name: 'admin-cli-anything', component: () => import('@/views/admin/CliAnything.vue') },
         { path: 'knowledge', name: 'admin-knowledge', component: () => import('@/views/admin/Knowledge.vue') },
         { path: 'knowledge/:collectionName/chunks', name: 'admin-knowledge-chunks', component: () => import('@/views/admin/KnowledgeChunks.vue') },
         { path: 'models', name: 'admin-models', component: () => import('@/views/admin/Models.vue') },

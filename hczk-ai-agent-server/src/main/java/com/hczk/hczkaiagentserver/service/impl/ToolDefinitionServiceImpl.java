@@ -57,11 +57,10 @@ public class ToolDefinitionServiceImpl implements ToolDefinitionService {
     public void delete(Long id) {
         ToolDefinition tool = toolMapper.selectById(id);
         if (tool == null) throw new RuntimeException("工具不存在: " + id);
-        if ("builtin".equals(tool.getType())) throw new RuntimeException("内置工具不可删除");
         toolMapper.deleteById(id);
         redisCache.invalidateByPrefix("tools:");
         redisCache.deleteKey("skills:all");
-        log.info("删除工具: id={}", id);
+        log.info("删除工具: id={}, name={}, type={}", id, tool.getName(), tool.getType());
     }
 
     @Override
