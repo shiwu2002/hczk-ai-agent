@@ -20,9 +20,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.util.List;
@@ -181,7 +179,7 @@ public class ChatController {
     public ResponseEntity<?> platformChat(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestBody Map<String, Object> request) {
-        return doPlatformChat(authHeader, request, false);
+        return doPlatformChat(authHeader, request);
     }
 
     /**
@@ -330,7 +328,7 @@ public class ChatController {
 
     // ========== 内部方法 ==========
 
-    private ResponseEntity<?> doPlatformChat(String authHeader, Map<String, Object> request, boolean stream) {
+    private ResponseEntity<?> doPlatformChat(String authHeader, Map<String, Object> request) {
         String apiKey = extractApiKey(authHeader);
         if (apiKey == null || apiKey.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Authorization header 不能为空"));
@@ -563,16 +561,9 @@ public class ChatController {
         }
     }
 
-    /** 构建工具组目录列表（传递给智能体的初始化目录） */
-    private List<Map<String, Object>> getAvailableSkills() {
-        return getAvailableSkills(null);
-    }
-
     /**
-     * 构建工具组目录列表（按用户身份过滤，传递给智能体的初始化目录）
-     * v10：仅传递用户可访问的工具组（public + 用户已绑定的 private）
-     *
-     * @param userId 用户ID，为 null 时仅返回 public
+     * 构建工具组目录列表（按用户身份过滤）
+     * 仅传递用户可访问的工具组（public + 用户已绑定的 private）
      */
     private List<Map<String, Object>> getAvailableSkills(String userId) {
         List<Skill> skills = skillService.getAccessibleSkillsWithToolCount(userId);
