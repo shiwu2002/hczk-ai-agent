@@ -11,7 +11,7 @@ import java.util.*;
 
 /**
  * 工具执行服务
- * 根据工具名称和参数执行内置工具（知识库操作等）
+ * 根据工具名称和参数执行内置工具（知识库操作等）或 CLI-Anything 工具
  */
 @Slf4j
 @Service
@@ -19,6 +19,7 @@ import java.util.*;
 public class ToolExecuteService {
 
     private final KnowledgeController knowledgeController;
+    private final CliAnythingService cliAnythingService;
 
     /**
      * 执行内置工具
@@ -32,12 +33,20 @@ public class ToolExecuteService {
         log.info("执行工具: name={}, userId={}, arguments={}", toolName, authenticatedUserId, arguments);
 
         try {
+            // CLI-Anything 工具：名称以 "cli-anything-" 开头
+            if (toolName.startsWith("cli-anything-")) {
+                return executeCliAnythingTool(toolName, arguments);
+            }
+
             return switch (toolName) {
                 case "knowledge_search" -> executeKnowledgeSearch(arguments, authenticatedUserId);
                 case "knowledge_ingest" -> executeKnowledgeIngest(arguments, authenticatedUserId);
                 case "knowledge_ingest_file" -> executeKnowledgeIngestFile(arguments, authenticatedUserId);
                 case "knowledge_list_collections" -> executeListCollections(arguments, authenticatedUserId);
                 case "knowledge_get_chunks" -> executeGetChunks(arguments, authenticatedUserId);
+                // CLI 工具市场 Skill 的内置工具
+                case "cli_tools_list" -> executeCliToolsList();
+                case "cli_tools_install" -> executeCliToolsInstall(arguments);
                 default -> Map.of("error", "未知工具: " + toolName);
             };
         } catch (Exception e) {
@@ -55,6 +64,83 @@ public class ToolExecuteService {
             return authenticatedUserId;
         }
         return null;
+    }
+
+    /**
+     * 处理 CLI-Anything 工具调用
+     * 平台不执行 CLI 命令，返回元数据让智能体自行安装执行
+     */
+    private Map<String, Object> executeCliAnythingTool(String toolName, Map<String, Object> arguments) {
+        String stripped = toolName.substring("cli-anything-".length());
+        int underscoreIdx = stripped.indexOf('_');
+        String cliName;
+        String command = null;
+
+        if (underscoreIdx > 0) {
+            cliName = stripped.substring(0, underscoreIdx);
+            String remainder = stripped.substring(underscoreIdx + 1);
+            if (!"execute".equals(remainder)) {
+                command = remainder.replace("_", " ");
+            }
+        } else {
+            cliName = stripped;
+        }
+
+        if (command == null && arguments != null && arguments.containsKey("command")) {
+            command = (String) arguments.get("command");
+        }
+
+        // 平台不执行 CLI，返回元数据指引智能体自行安装执行
+        Map<String, Object> metadata = cliAnythingService.getCliMetadataForAgent(cliName);
+        if (metadata == null) {
+            return Map.of("success", false, "error",
+                    "CLI 工具未在平台注册或未启用: " + cliName + "。请联系管理员在 CLI 工具市场中启用该工具。");
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", false);
+        result.put("error", "CLI 工具需要在智能体本地执行，平台无法代为执行");
+        result.put("cli_name", cliName);
+        result.put("command", command);
+        result.put("entry_point", metadata.get("entry_point"));
+        result.put("install_cmd", metadata.get("install_cmd"));
+        result.put("install_guide", metadata.get("install_guide"));
+        result.put("message", String.format(
+                "请先在本地安装 CLI 工具: %s，然后执行: %s %s",
+                metadata.get("install_cmd"), metadata.get("entry_point"), command != null ? command : ""));
+        return result;
+    }
+
+    /**
+     * CLI 工具市场 — 列出可用 CLI 工具（供智能体发现）
+     * 仅返回管理员已启用且同步成功的工具
+     */
+    private Map<String, Object> executeCliToolsList() {
+        List<Map<String, Object>> tools = cliAnythingService.getAvailableClisForAgent();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", true);
+        result.put("total", tools.size());
+        result.put("tools", tools);
+        return result;
+    }
+
+    /**
+     * CLI 工具市场 — 安装指定 CLI 工具（供智能体按需安装）
+     * 创建平台 Skill + ToolDefinition，智能体随后可调用该工具的命令
+     */
+    private Map<String, Object> executeCliToolsInstall(Map<String, Object> arguments) {
+        String cliName = (String) arguments.get("cli_name");
+        if (cliName == null || cliName.isBlank()) {
+            return Map.of("success", false, "error", "缺少必填参数: cli_name");
+        }
+        try {
+            Map<String, Object> installResult = cliAnythingService.installCliForAgent(cliName);
+            installResult.put("success", true);
+            return installResult;
+        } catch (Exception e) {
+            log.error("CLI 工具安装失败: name={}, error={}", cliName, e.getMessage());
+            return Map.of("success", false, "error", e.getMessage());
+        }
     }
 
     private Map<String, Object> executeKnowledgeSearch(Map<String, Object> args, String authenticatedUserId) {

@@ -68,6 +68,23 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
 
+# CLI-Anything 注册表配置
+cli-anything:
+  registry-url: ${CLI_ANYTHING_REGISTRY_URL:https://hkuds.github.io/CLI-Anything/registry.json}
+  raw-base-url: ${CLI_ANYTHING_RAW_BASE:https://raw.githubusercontent.com/HKUDS/CLI-Anything/main}
+  # 备用镜像源（逗号分隔），主 URL 失败时依次尝试
+  mirror-urls: ${CLI_ANYTHING_MIRROR_URLS:https://ghp.ci/https://raw.githubusercontent.com/HKUDS/CLI-Anything/main/registry.json}
+  mirror-raw-base-urls: ${CLI_ANYTHING_MIRROR_RAW_BASE:https://ghp.ci/https://raw.githubusercontent.com/HKUDS/CLI-Anything/main}
+  # 定时同步开关（关闭自动同步，由管理员手动触发）
+  sync-enabled: ${CLI_ANYTHING_SYNC_ENABLED:false}
+  # 定时同步间隔（毫秒），默认 6 小时
+  sync-interval-ms: ${CLI_ANYTHING_SYNC_INTERVAL_MS:21600000}
+  # 启动后首次同步延迟（毫秒），默认 1 分钟
+  sync-initial-delay-ms: ${CLI_ANYTHING_SYNC_INITIAL_DELAY_MS:60000}
+  # HTTP 超时配置
+  connect-timeout-ms: 15000
+  read-timeout-ms: 60000
+
 # 平台基础配置
 app:
   platform-url: ${APP_PLATFORM_URL:http://localhost:8080}

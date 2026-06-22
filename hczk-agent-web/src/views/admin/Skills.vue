@@ -286,7 +286,7 @@ function formatSchemaParams(schema) {
               <div class="flex items-center gap-1 flex-shrink-0">
                 <button @click="toggleTool(tool.id)" class="p-1 rounded hover:bg-white/5 text-slate-500"><Power class="w-3 h-3" /></button>
                 <button @click="editTool(tool, skill.id)" class="p-1 rounded hover:bg-white/5 text-slate-500"><Settings2 class="w-3 h-3" /></button>
-                <button v-if="tool.type !== 'builtin'" @click="deleteTool(tool.id)" class="p-1 rounded hover:bg-white/5 text-red-400"><Trash2 class="w-3 h-3" /></button>
+                <button @click="deleteTool(tool.id)" class="p-1 rounded hover:bg-white/5 text-red-400"><Trash2 class="w-3 h-3" /></button>
               </div>
             </div>
           </div>
