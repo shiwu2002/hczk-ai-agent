@@ -1,7 +1,7 @@
 # 桓宸智科 AI 平台 — 开发文档
 
-> 版本：2.0.0
-> 日期：2026-06-16
+> 版本：7.0.0
+> 日期：2026-06-22
 
 ---
 
@@ -24,8 +24,9 @@
 | 层级 | 技术选型 |
 |------|----------|
 | 前端 | Vue 3 + Vite + Tailwind CSS v4 + Pinia + Vue Router |
-| 后端 | Spring Boot 3.2.5 + Java 17 |
-| 数据库 | MySQL 8.0（生产）/ H2（开发测试） |
+| 后端 | Spring Boot 3.2.5 + Java 21 |
+| 数据库 | MySQL 8.0 |
+| 向量数据库 | Milvus（知识库服务） |
 | 缓存 | Redis 7.x |
 | 安全 | Spring Security + JWT |
 | 构建工具 | Maven 3.9+ / npm |
@@ -35,16 +36,16 @@
 ```
 +-------------------+      +-------------------+      +-------------------+
 |   Vue 3 前端      |<---->|  Spring Boot 后端 |<---->|   MySQL 数据库    |
-|  (hczk-agent-web) | REST | (hczk-ai-agent-   | JPA  |                   |
-|                   | API  |      server)       |      +-------------------+
+|  (hczk-agent-web) | REST | (hczk-ai-agent-   | MyBatis|                 |
+|                   | API  |      server)       | -Plus  +-------------------+
 +-------------------+      +-------------------+      +-------------------+
                                     |                    Redis 缓存       |
                                     +----------------->+-------------------+
                                     |
-                           +--------+--------+
-                           |  注册的容器智能体  |
-                           |  (各智能体服务)    |
-                           |  health/chat/...  |
+                           +--------+--------+      +-------------------+
+                           |  注册的容器智能体  |      |  Milvus 向量数据库 |
+                           |  (各智能体服务)    |      |  (知识库服务)     |
+                           |  health/chat/...  |      +-------------------+
                            +------------------+
 ```
 
@@ -68,12 +69,17 @@
 
 | 表名 | 说明 |
 |------|------|
-| users | 用户表 |
+| users | 用户表（含雪花 userId） |
 | ai_models | AI 模型表（平台接入的 LLM 模型配置） |
 | agents | 智能体表（注册的容器智能体） |
-| api_keys | API 密钥表 |
+| api_keys | API 密钥表（含 unit_price 计费单价） |
+| skill | Skill 工具组表（含 public/private 可见性） |
+| tool_definition | 工具定义表（function calling schema，type=builtin/api） |
+| user_skill_binding | 用户-Skill 绑定表（private 工具组授权） |
+| cli_tool_registry | CLI-Anything 工具注册表（从 GitHub 同步，含 is_enabled 市场开关） |
+| cli_tool_command | CLI 工具命令表（从 SKILL.md 解析的命令列表） |
 | merchant_agent_binding | 商家智能体绑定表 |
-| platform_configs | 平台配置表 |
+| retrieval_logs | 检索日志表（监控命中率、耗时、策略） |
 | billing_records | 计费记录表 |
 | recharge_records | 充值记录表 |
 
@@ -196,6 +202,35 @@
 | /api/webhook/meituan | POST | 美团消息回调 |
 | /api/webhook/douyin | POST | 抖音消息回调 |
 
+### 4.9 CLI-Anything 工具市场
+
+CLI-Anything 是一个命令行工具注册表，平台从 GitHub 同步 CLI 工具的元数据（registry.json + SKILL.md），管理员在市场启用后，智能体通过 Skill 发现和安装。
+
+**架构（v3）**：平台只管元数据，智能体自行 pip install 并在本地执行。
+
+**核心接口**：
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| /platform/cli-anything/clis | GET | 管理员查看所有 CLI 工具（含启用状态） |
+| /platform/cli-anything/clis/{name}/enable | POST | 管理员启用工具（is_enabled=true） |
+| /platform/cli-anything/clis/{name}/disable | POST | 管理员禁用工具（is_enabled=false） |
+| /platform/cli-anything/sync | POST | 管理员手动从 GitHub 同步注册表 |
+
+**系统 Skill "CLI工具市场"（name=cli-market）**：
+
+| 工具名 | 类型 | 说明 |
+|--------|------|------|
+| cli_tools_list | builtin | 返回已启用 + 已同步的 CLI 工具列表 |
+| cli_tools_install | builtin | 返回指定 CLI 工具的完整安装元数据（install_cmd、entry_point、commands） |
+
+**智能体使用流程**：
+1. 收到"CLI工具市场" Skill → 调用 `cli_tools_list` 浏览可用工具
+2. 选择工具 → 调用 `cli_tools_install("jumpserver")` 获取元数据
+3. 本地执行 `pip install` → 通过 entry_point 直接执行 CLI 命令
+
+**相关表**：`cli_tool_registry`（含 is_enabled 市场开关）、`cli_tool_command`
+
 ---
 
 ## 五、计费规则
@@ -247,7 +282,7 @@ processBilling()
 
 ### 6.1 环境要求
 
-- JDK 17+
+- JDK 21+
 - Node.js 18+
 - Maven 3.9+
 - MySQL 8.0+（生产环境）
@@ -307,4 +342,5 @@ mysql -u root -p hczk_ai_platform < doce/migration_v2_to_v3.sql
 | 知识库功能全景 | `docs/hhf/knowledge-feature-spec.md` | 知识库服务完整功能规格 |
 | 平台开发者接入指南 | `docs/hhf/platform-integration-guide.md` | 通用智能体运行时接入平台指南 |
 | 数据库初始化 | `hczk-ai-agent-server/doce/init.sql` | 完整建表 SQL |
-| 数据库迁移 | `hczk-ai-agent-server/doce/migration_v2_to_v3.sql` | v2 → v3 迁移脚本 |
+| v12→v13 CLI注册表 | `doce/migration_v12_to_v13_cli_anything.sql` | CLI-Anything 注册表本地存储 |
+| v13→v14 CLI市场 | `doce/migration_v13_to_v14_cli_market.sql` | CLI 工具市场重构（is_enabled + 系统 Skill） |

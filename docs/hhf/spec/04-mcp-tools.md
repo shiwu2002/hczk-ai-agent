@@ -386,7 +386,91 @@ Authorization: Bearer {tools_auth_token}
 | `knowledge_list_collections` | 列出知识库集合 | 列出所有集合及基本信息 | user_id(必填) |
 | `knowledge_get_chunks` | 查看知识分块 | 分页浏览集合内的分块 | collection_name, user_id(必填) |
 
-## 4.9 知识库集合命名规则
+## 4.9 CLI-Anything 工具市场 Skill
+
+应用启动时自动注册到 `cli-market` 工具组（name=cli-market），无需手动创建。该 Skill 为智能体提供 CLI 命令行工具的发现和安装能力。
+
+### 4.9.1 工具清单
+
+| 工具名称 | 显示名 | 功能 | 关键参数 |
+|---------|--------|------|---------|
+| `cli_tools_list` | 列出可用CLI工具 | 获取管理员已启用且同步成功的 CLI 工具列表 | 无必填参数 |
+| `cli_tools_install` | 安装CLI工具 | 获取指定 CLI 工具的完整安装元数据（install_cmd、entry_point、commands 等） | cli_name(必填) |
+
+### 4.9.2 cli_tools_list 调用示例
+
+```
+POST /api/tools/execute
+Authorization: Bearer {token}
+{
+  "tool_name": "cli_tools_list",
+  "arguments": {}
+}
+```
+
+响应：
+```json
+{
+  "success": true,
+  "total": 3,
+  "tools": [
+    {
+      "name": "jumpserver",
+      "display_name": "JumpServer",
+      "description": "Bastion host management...",
+      "category": "devops",
+      "version": "0.1.0",
+      "commands_count": 15,
+      "installed": false
+    }
+  ]
+}
+```
+
+### 4.9.3 cli_tools_install 调用示例
+
+```
+POST /api/tools/execute
+Authorization: Bearer {token}
+{
+  "tool_name": "cli_tools_install",
+  "arguments": { "cli_name": "jumpserver" }
+}
+```
+
+响应：
+```json
+{
+  "success": true,
+  "name": "jumpserver",
+  "display_name": "JumpServer",
+  "entry_point": "cli-anything-jumpserver",
+  "install_cmd": "pip install git+https://github.com/HKUDS/CLI-Anything.git#subdirectory=jumpserver/agent-harness",
+  "install_guide": {
+    "primary": "pip install git+...",
+    "mirrors": ["pip install git+https://ghp.ci/..."]
+  },
+  "commands": [
+    {
+      "group": "auth",
+      "name": "login",
+      "description": "Login to JumpServer",
+      "full_command": "cli-anything-jumpserver auth login",
+      "input_schema": "{...}"
+    }
+  ]
+}
+```
+
+**智能体拿到元数据后**：自行 pip install → 通过 entry_point 和 commands[].full_command 在本地执行。
+
+### 4.9.4 管理员启停
+
+CLI 工具默认不在市场显示（is_enabled=false）。管理员在后台"CLI 工具市场"页面启用后，`cli_tools_list` 才返回该工具。禁用后只是市场不可见，不影响已安装的工具。
+
+---
+
+## 4.10 知识库集合命名规则
 
 平台使用 Milvus 向量数据库存储知识库，物理集合名按以下规则拼接：
 

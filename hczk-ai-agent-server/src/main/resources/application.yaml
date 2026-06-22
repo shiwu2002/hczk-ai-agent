@@ -85,9 +85,10 @@ cli-anything:
   connect-timeout-ms: 15000
   read-timeout-ms: 60000
 
-# 平台基础配置
+# 平台对外地址（可选，生产部署时设置。不设置则从请求 Host 头自动推断）
+# 智能体通过此地址回调平台的工具执行/发现端点
 app:
-  platform-url: ${APP_PLATFORM_URL:http://localhost:8080}
+  platform-url: ${APP_PLATFORM_URL:http://192.168.0.100:8080}
 
 # 知识库服务配置
 knowledge:

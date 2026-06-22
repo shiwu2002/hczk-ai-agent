@@ -14,7 +14,6 @@ import com.hczk.hczkaiagentserver.util.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
@@ -70,8 +69,32 @@ public class ChatController {
             new ThreadPoolExecutor.CallerRunsPolicy()
     );
 
-    @Value("${app.platform-url:http://localhost:8080}")
-    private String platformBaseUrl;
+    private final HttpServletRequest httpRequest;
+
+    /**
+     * 智能体工具端点中转回平台的基础 URL。
+     * 智能体通过此地址回调平台执行工具，因此必须是智能体能访问到的地址。
+     *
+     * 优先级：
+     * 1. 环境变量 APP_PLATFORM_URL 显式设置（生产/跨服务器部署，如 https://api.example.com）
+     * 2. 请求 Host 头 + X-Forwarded-Proto（未设环境变量时自动推断，适配开发/试用场景）
+     * 3. 本地地址兜底
+     */
+    private String getPlatformBaseUrl() {
+        // 环境变量显式设置时直接使用（跨服务器部署必需）
+        String envUrl = System.getenv("APP_PLATFORM_URL");
+        if (envUrl != null && !envUrl.isBlank()) {
+            return envUrl;
+        }
+        // 未设置环境变量时，从请求 Host 头推断
+        String host = httpRequest.getHeader("Host");
+        if (host != null && !host.isBlank()) {
+            String scheme = httpRequest.getHeader("X-Forwarded-Proto");
+            if (scheme == null || scheme.isBlank()) scheme = "http";
+            return scheme + "://" + host;
+        }
+        return "http://" + httpRequest.getLocalAddr() + ":" + httpRequest.getLocalPort();
+    }
 
     /**
      * 内部聊天接口（管理后台/前端使用）
@@ -147,6 +170,11 @@ public class ChatController {
     private SseEmitter proxyTrialSse(Agent agent, String message, String currentUserId) {
         SseEmitter emitter = new SseEmitter(60000L);
 
+        // 在线程池外提前解析（HttpServletRequest 绑定在当前请求线程）
+        String platformBaseUrl = getPlatformBaseUrl();
+        List<Map<String, Object>> availableSkills = getAvailableSkills(currentUserId);
+        String agentToken = jwtUtil.generateAgentToken(currentUserId, null);
+
         sseExecutor.execute(() -> {
             try {
                 String streamUrl = agent.getStreamEndpoint();
@@ -158,19 +186,16 @@ public class ChatController {
                 conn.setConnectTimeout(10000);
                 conn.setReadTimeout(60000);
 
-                // 使用JWT鉴权：生成智能体调用JWT，通过 Authorization 头传递
-                String agentToken = jwtUtil.generateAgentToken(currentUserId, null);
                 conn.setRequestProperty("Authorization", "Bearer " + agentToken);
 
-                // 发送请求体（使用 Jackson 序列化为合法 JSON，包含 tools 列表）
                 Map<String, Object> bodyMap = new java.util.HashMap<>();
                 bodyMap.put("message", message);
                 bodyMap.put("session_id", UUID.randomUUID().toString());
                 bodyMap.put("user_id", currentUserId);
-                // 传递平台注册的 MCP 工具列表，供智能体做 function calling
-                bodyMap.put("available_skills", getAvailableSkills(currentUserId));
+                bodyMap.put("available_skills", availableSkills);
                 bodyMap.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
                 bodyMap.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
+                bodyMap.put("tools_auth_token", agentToken);
                 String body = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
                 try (OutputStream os = conn.getOutputStream()) {
                     os.write(body.getBytes());
@@ -229,8 +254,9 @@ public class ChatController {
             body.put("session_id", UUID.randomUUID().toString());
             // 传递平台注册的 MCP 工具列表
             body.put("available_skills", getAvailableSkills(currentUserId));
-            body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
-            body.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
+            body.put("tools_discovery_endpoint", getPlatformBaseUrl() + "/api/tools/group");
+            body.put("tools_execution_endpoint", getPlatformBaseUrl() + "/api/tools/execute");
+            body.put("tools_auth_token", agentToken);
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
@@ -459,6 +485,12 @@ public class ChatController {
     }
 
     private ResponseEntity<?> forwardToAgent(Long agentId, String userId, String message, String sessionId, Map<String, Object> originalRequest, MerchantAgentBinding binding, String apiKey) {
+        return forwardToAgent(agentId, userId, message, sessionId, originalRequest, binding, apiKey,
+                getPlatformBaseUrl(), getAvailableSkills(userId));
+    }
+
+    private ResponseEntity<?> forwardToAgent(Long agentId, String userId, String message, String sessionId, Map<String, Object> originalRequest, MerchantAgentBinding binding, String apiKey,
+                                             String platformBaseUrl, List<Map<String, Object>> availableSkills) {
         Agent agent = agentService.getAgentById(agentId);
         if (agent == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "智能体不存在"));
@@ -481,10 +513,8 @@ public class ChatController {
             body.put("user_id", userId);
             body.put("message", message);
             body.put("session_id", sessionId);
-            // 传递平台注册的 MCP 工具列表，供智能体做 function calling
-            body.put("available_skills", getAvailableSkills(userId));
+            body.put("available_skills", availableSkills);
             body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
-            // 传递工具执行端点和认证信息，供远端智能体回调平台工具时使用
             body.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
             body.put("tools_auth_token", agentToken);  // 用短期 agentToken 作为回调认证凭据（避免明文 API Key 泄露）
             if (originalRequest != null) {
@@ -516,6 +546,11 @@ public class ChatController {
     private SseEmitter proxySse(Agent agent, String userId, Map<String, Object> originalRequest, MerchantAgentBinding binding, String apiKey) {
         SseEmitter emitter = new SseEmitter(60000L);
 
+        // 在线程池外提前解析（HttpServletRequest 绑定在当前请求线程）
+        String platformBaseUrl = getPlatformBaseUrl();
+        List<Map<String, Object>> availableSkills = getAvailableSkills(userId);
+        String agentToken = jwtUtil.generateAgentToken(userId, apiKey);
+
         sseExecutor.execute(() -> {
             try {
                 String streamUrl = agent.getStreamEndpoint();
@@ -524,17 +559,13 @@ public class ChatController {
                 conn.setDoOutput(true);
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setRequestProperty("Accept", "text/event-stream");
-                // 使用JWT鉴权：将雪花userId和apiKey封装到JWT中
-                String agentToken = jwtUtil.generateAgentToken(userId, apiKey);
                 conn.setRequestProperty("Authorization", "Bearer " + agentToken);
                 conn.setConnectTimeout(5000);
                 conn.setReadTimeout(60000);
 
-                // 构建请求体
                 Map<String, Object> body = new java.util.HashMap<>();
                 body.put("user_id", userId);
-                // 传递平台注册的 MCP 工具列表
-                body.put("available_skills", getAvailableSkills(userId));
+                body.put("available_skills", availableSkills);
                 body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
                 body.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
                 body.put("tools_auth_token", agentToken);
@@ -577,12 +608,16 @@ public class ChatController {
     private SseEmitter fallbackSse(Agent agent, String userId, Map<String, Object> originalRequest, MerchantAgentBinding binding, String apiKey) {
         SseEmitter emitter = new SseEmitter(30000L);
 
+        // 在线程池外提前解析（HttpServletRequest 绑定在当前请求线程）
+        String platformBaseUrl = getPlatformBaseUrl();
+        List<Map<String, Object>> availableSkills = getAvailableSkills(userId);
+
         sseExecutor.execute(() -> {
             try {
                 ResponseEntity<?> response = forwardToAgent(agent.getId(), userId,
                         (String) originalRequest.get("message"),
                         (String) originalRequest.getOrDefault("session_id", UUID.randomUUID().toString()),
-                        originalRequest, binding, apiKey);
+                        originalRequest, binding, apiKey, platformBaseUrl, availableSkills);
 
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                     @SuppressWarnings("unchecked")
@@ -624,9 +659,9 @@ public class ChatController {
             body.put("message", message);
             body.put("session_id", sessionId);
             body.put("available_skills", getAvailableSkills(userId));
-            body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
+            body.put("tools_discovery_endpoint", getPlatformBaseUrl() + "/api/tools/group");
             // 传递工具执行端点和认证信息，供远端智能体回调平台工具时使用
-            body.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
+            body.put("tools_execution_endpoint", getPlatformBaseUrl() + "/api/tools/execute");
             body.put("tools_auth_token", agentToken);  // 用短期 agentToken 作为回调认证凭据（避免明文 API Key 泄露）
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 

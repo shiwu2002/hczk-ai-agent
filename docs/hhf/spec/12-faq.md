@@ -33,5 +33,11 @@ A: 管理员在管理后台将私有工具组绑定到指定用户。当该用�
 **Q: 检索结果中的溯源信息怎么用？**
 A: 每个检索结果 chunk 的 `metadata` 包含 `pageNumber`（页码）、`chapter`（章节）、`sourceFilename`（源文件）等信息。智能体可在回复中引用出处，例如"根据《产品手册》第3页的描述..."，提升回复的可信度。
 
+**Q: 智能体如何使用 CLI 工具？**
+A: 智能体会收到系统 Skill "CLI工具市场"（name=cli-market），包含两个工具：1) `cli_tools_list` — 列出管理员已启用的 CLI 工具；2) `cli_tools_install` — 获取指定 CLI 工具的安装元数据（install_cmd、entry_point、commands）。智能体拿到元数据后，自行 `pip install` 并在本地执行 CLI 命令。平台不代为安装或执行。
+
+**Q: 为什么 cli_tools_list 返回为空？**
+A: 管理员需要在后台"CLI 工具市场"页面先手动同步注册表，然后启用需要的工具。新同步的工具默认未启用（is_enabled=false），`cli_tools_list` 只返回已启用且同步成功的工具。
+
 **Q: 为什么检索一直走兜底回复？**
 A: 最常见的原因是 `user_id` 未正确传递，导致 Milvus 集合名拼接错误。请确保：1) 调用工具时在 `arguments` 中携带 `user_id`（从对话请求的 `user_id` 字段获取）；2) 使用 `tools_auth_token` 作为认证令牌调用工具；3) `collection_name` 可选，默认为 `"default"`；4) 确认该用户确实有知识库数据（检查 Milvus 中是否存在 `kb_{user_id}_default` 集合）。
