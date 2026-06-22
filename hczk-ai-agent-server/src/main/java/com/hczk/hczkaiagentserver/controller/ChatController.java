@@ -115,7 +115,7 @@ public class ChatController {
 
     /**
      * 智能体试用接口（管理后台专用，JWT 认证）
-     * 通过 agentId 代理请求到智能体的 endpoint，支持流式和非流式
+     * 复用正式的 proxySse / forwardToAgent，apiKey 传 null（试用不计费）
      */
     private Object trialChat(Long agentId, ChatRequest request) {
         Agent agent = agentService.getAgentById(agentId);
@@ -134,19 +134,18 @@ public class ChatController {
             return ResponseEntity.badRequest().body(Map.of("error", "消息内容不能为空"));
         }
 
-        // 从认证上下文获取当前用户ID，而非硬编码 "trial"
         String currentUserId = resolveCurrentUserId();
+        Map<String, Object> reqBody = Map.of("message", message, "user_id", currentUserId != null ? currentUserId : "");
 
         boolean useStream = Boolean.TRUE.equals(request.getStream());
         String streamEndpoint = agent.getStreamEndpoint();
 
-        // 如果请求流式且智能体配置了流式端点，使用 SSE 代理
         if (useStream && streamEndpoint != null && !streamEndpoint.trim().isEmpty()) {
-            return proxyTrialSse(agent, message, currentUserId);
+            return proxySse(agent, currentUserId, reqBody, null, null);
         }
 
-        // 否则使用同步调用
-        return syncTrialCall(agent, message, currentUserId);
+        return forwardToAgent(agent.getId(), currentUserId, message, UUID.randomUUID().toString(),
+                reqBody, null, null, getPlatformBaseUrl(), getAvailableSkills(currentUserId));
     }
 
     /**
@@ -162,115 +161,6 @@ public class ChatController {
             return auth.getName().substring("apikey-user-".length());
         }
         return null;
-    }
-
-    /**
-     * 智能体试用 - SSE 流式代理
-     */
-    private SseEmitter proxyTrialSse(Agent agent, String message, String currentUserId) {
-        SseEmitter emitter = new SseEmitter(60000L);
-
-        // 在线程池外提前解析（HttpServletRequest 绑定在当前请求线程）
-        String platformBaseUrl = getPlatformBaseUrl();
-        List<Map<String, Object>> availableSkills = getAvailableSkills(currentUserId);
-        String agentToken = jwtUtil.generateAgentToken(currentUserId, null);
-
-        sseExecutor.execute(() -> {
-            try {
-                String streamUrl = agent.getStreamEndpoint();
-                HttpURLConnection conn = (HttpURLConnection) URI.create(streamUrl).toURL().openConnection();
-                conn.setRequestMethod("POST");
-                conn.setDoOutput(true);
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setRequestProperty("Accept", "text/event-stream");
-                conn.setConnectTimeout(10000);
-                conn.setReadTimeout(60000);
-
-                conn.setRequestProperty("Authorization", "Bearer " + agentToken);
-
-                Map<String, Object> bodyMap = new java.util.HashMap<>();
-                bodyMap.put("message", message);
-                bodyMap.put("session_id", UUID.randomUUID().toString());
-                bodyMap.put("user_id", currentUserId);
-                bodyMap.put("available_skills", availableSkills);
-                bodyMap.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
-                bodyMap.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
-                bodyMap.put("tools_auth_token", agentToken);
-                String body = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(bodyMap);
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(body.getBytes());
-                    os.flush();
-                }
-
-                // 读取 SSE 响应并转发
-                int responseCode = conn.getResponseCode();
-                if (responseCode != 200) {
-                    String error = new BufferedReader(new InputStreamReader(conn.getErrorStream()))
-                        .lines().collect(Collectors.joining("\n"));
-                    emitter.send(SseEmitter.event().data("{\"error\":\"智能体返回错误: " + responseCode + "\"}"));
-                    emitter.complete();
-                    return;
-                }
-
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        if (!line.isEmpty()) {
-                            // 智能体返回的行可能带 "data:" 前缀，去掉后让 SseEmitter 统一包装
-                            String dataContent = line.startsWith("data:") ? line.substring(5).trim() : line;
-                            emitter.send(SseEmitter.event().data(dataContent));
-                        }
-                    }
-                }
-                emitter.complete();
-            } catch (Exception e) {
-                log.error("智能体试用流式代理失败: agentId={}, error={}", agent.getId(), e.getMessage());
-                try {
-                    emitter.send(SseEmitter.event().data("{\"error\":\"" + e.getMessage() + "\"}"));
-                    emitter.completeWithError(e);
-                } catch (IOException ex) {
-                    emitter.completeWithError(ex);
-                }
-            }
-        });
-
-        return emitter;
-    }
-
-    /**
-     * 智能体试用 - 同步调用
-     */
-    private ResponseEntity<?> syncTrialCall(Agent agent, String message, String currentUserId) {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            // 使用JWT鉴权：生成智能体调用JWT
-            String agentToken = jwtUtil.generateAgentToken(currentUserId, null);
-            headers.set("Authorization", "Bearer " + agentToken);
-
-            Map<String, Object> body = new java.util.HashMap<>();
-            body.put("user_id", currentUserId);
-            body.put("message", message);
-            body.put("session_id", UUID.randomUUID().toString());
-            // 传递平台注册的 MCP 工具列表
-            body.put("available_skills", getAvailableSkills(currentUserId));
-            body.put("tools_discovery_endpoint", getPlatformBaseUrl() + "/api/tools/group");
-            body.put("tools_execution_endpoint", getPlatformBaseUrl() + "/api/tools/execute");
-            body.put("tools_auth_token", agentToken);
-
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-
-            log.info("智能体试用同步调用: agentId={}, chatEndpoint={}", agent.getId(), agent.getChatEndpoint());
-            @SuppressWarnings("unchecked")
-            ResponseEntity<Map> response = restTemplate.postForEntity(
-                agent.getChatEndpoint(), request, Map.class);
-
-            return ResponseEntity.ok(response.getBody());
-        } catch (Exception e) {
-            log.error("智能体试用同步调用失败: agentId={}, error={}", agent.getId(), e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "调用智能体失败: " + e.getMessage()));
-        }
     }
 
     /**
@@ -471,9 +361,11 @@ public class ChatController {
             }
 
             if (binding.getAgentId() != null) {
-                return forwardToAgent(binding.getAgentId(), userId, message, sessionId, request, binding, key.getApiKey());
+                return forwardToAgent(binding.getAgentId(), userId, message, sessionId, request, binding, key.getApiKey(),
+                        getPlatformBaseUrl(), getAvailableSkills(userId));
             } else if (binding.getAgentEndpoint() != null && !binding.getAgentEndpoint().isEmpty()) {
-                return forwardToEndpoint(binding.getAgentEndpoint(), binding.getAgentAuthHeader(), userId, message, sessionId, binding, key.getApiKey());
+                return forwardToEndpoint(binding.getAgentEndpoint(), binding.getAgentAuthHeader(), userId, message, sessionId, binding, key.getApiKey(),
+                        getPlatformBaseUrl(), getAvailableSkills(userId));
             } else {
                 return ResponseEntity.badRequest().body(Map.of("error", "用户绑定配置无效"));
             }
@@ -482,11 +374,6 @@ public class ChatController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "ApiKey 无效或已禁用"));
         }
-    }
-
-    private ResponseEntity<?> forwardToAgent(Long agentId, String userId, String message, String sessionId, Map<String, Object> originalRequest, MerchantAgentBinding binding, String apiKey) {
-        return forwardToAgent(agentId, userId, message, sessionId, originalRequest, binding, apiKey,
-                getPlatformBaseUrl(), getAvailableSkills(userId));
     }
 
     private ResponseEntity<?> forwardToAgent(Long agentId, String userId, String message, String sessionId, Map<String, Object> originalRequest, MerchantAgentBinding binding, String apiKey,
@@ -646,7 +533,8 @@ public class ChatController {
         return null;
     }
 
-    private ResponseEntity<?> forwardToEndpoint(String endpoint, String authHeader, String userId, String message, String sessionId, MerchantAgentBinding binding, String apiKey) {
+    private ResponseEntity<?> forwardToEndpoint(String endpoint, String authHeader, String userId, String message, String sessionId, MerchantAgentBinding binding, String apiKey,
+                                                String platformBaseUrl, List<Map<String, Object>> availableSkills) {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -658,10 +546,10 @@ public class ChatController {
             body.put("user_id", userId);
             body.put("message", message);
             body.put("session_id", sessionId);
-            body.put("available_skills", getAvailableSkills(userId));
-            body.put("tools_discovery_endpoint", getPlatformBaseUrl() + "/api/tools/group");
+            body.put("available_skills", availableSkills);
+            body.put("tools_discovery_endpoint", platformBaseUrl + "/api/tools/group");
             // 传递工具执行端点和认证信息，供远端智能体回调平台工具时使用
-            body.put("tools_execution_endpoint", getPlatformBaseUrl() + "/api/tools/execute");
+            body.put("tools_execution_endpoint", platformBaseUrl + "/api/tools/execute");
             body.put("tools_auth_token", agentToken);  // 用短期 agentToken 作为回调认证凭据（避免明文 API Key 泄露）
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
